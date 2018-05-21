@@ -1,3 +1,4 @@
 # linux-wiiu kernel defconfig
 
 CONFIG_LOCALVERSION="-wiiu"
+CONFIG_WIIU=y
