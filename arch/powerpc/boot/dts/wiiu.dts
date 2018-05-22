@@ -2,4 +2,32 @@
 
 / {
     model = "nintendo,wiiu";
+    compatible = "nintendo,wiiu";
+
+    #address-cells = <1>;
+    #size-cells = <1>;
+
+    memory {
+        device_type = "memory";
+        reg = <0x00000000 0x02000000>;          /* MEM1 - 32MB */
+    };
+
+    cpus {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        PowerPC,espresso@0 {
+            device_type = "cpu";
+            reg = <0>;
+
+            clock-frequency = <1243125000>;     /* 1.243125GHz */
+            bus-frequency = <248625000>;        /* 248.625MHz core-to-bus 5x */
+			timebase-frequency = <62156250>;    /* This value is probably quite wrong, it's only an approximation */
+
+            i-cache-line-size = <32>;
+            d-cache-line-size = <32>;
+            i-cache-size = <32768>;             /* very wrong */
+            d-cache-size = <32768>;             /* very wrong */
+        };
+    };
 };
