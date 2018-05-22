@@ -1,4 +1,8 @@
 # linux-wiiu kernel defconfig
 
 CONFIG_LOCALVERSION="-wiiu"
+
 CONFIG_WIIU=y
+# CONFIG_PPC_CHRP is not set
+# CONFIG_PPC_PMAC is not set
+# CONFIG_PPC_OF_BOOT_TRAMPOLINE is not set
