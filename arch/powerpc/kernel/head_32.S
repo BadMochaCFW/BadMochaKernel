@@ -168,7 +168,9 @@ __after_mmu_off:
 #ifdef CONFIG_PPC_EARLY_DEBUG_USBGECKO
 	bl	setup_usbgecko_bat
 #endif
-
+#if defined (CONFIG_PPC_EARLY_DEBUG_LATTEIPC)
+	bl	setup_latteipc_bat
+#endif
 /*
  * Call setup_cpu for CPU 0 and initialize 6xx Idle
  */
@@ -1218,6 +1220,22 @@ setup_usbgecko_bat:
 	ori	r11, r11, 0x2	/* 128K, Vs=1, Vp=0 */
 	mtspr	SPRN_DBAT1L, r8
 	mtspr	SPRN_DBAT1U, r11
+	blr
+#endif
+
+#if defined(CONFIG_PPC_EARLY_DEBUG_LATTEIPC)
+setup_latteipc_bat:
+/*	Prepare a BAT for early Latte MMIO access */
+	lis r8, 0x0d80
+	ori r8, r8, 0x002a /* uncached, guarded, rw */
+
+/*	map into 0xfffe (FIX_EARLY_DEBUG_BASE) */
+	lis r11, 0xfffe
+	ori r11, r11, 0x2 /* 128K, supervisor-only */
+
+	mtspr SPRN_DBAT1L, r8
+	mtspr SPRN_DBAT1U, r11
+
 	blr
 #endif
 
