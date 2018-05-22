@@ -55,16 +55,14 @@ _zimage_start:
     mtspr 0x213, r8 /* IBAT1L */
 
     /* Latte MMIO area */
-    /* 64MB, starting at 0x89200000... */
-    lis r8, 0x0d8007ff@ha
+    /* 64MB, starting at 0x0d800000... */
+    lis r8, 0x0d8007ff@h
     ori r8, r8,0x0d800007ff@l
     mtspr 0x21c, r8 /* DBAT2U */
-    /*mtspr 0x214, r8*/ /* IBAT2U */
 
-    lis r8, 0x0d80006A@ha
+    lis r8, 0x0d80006A@h
     ori r8, r8,0x0d80006A@l
     mtspr 0x21d, r8 /* DBAT2L */
-    /*mtspr 0x215, r8*/ /* IBAT2L */
 
     /* Turn on BAT 4 through 7 */
     mfspr r8, 0x3f3 /* HID4 */
