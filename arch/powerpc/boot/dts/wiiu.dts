@@ -48,6 +48,7 @@
         #size-cells = <1>;
         compatible = "nintendo,latte";
         ranges = <0x0c000000 0x0c000000 0x00400000      /* Espresso registers */
+                  0x0d000000 0x0d000000 0x00200000      /* Latte deivces */
                   0x0d800000 0x0d800000 0x00800000>;    /* Latte registers */
 
         espresso_pic: pic@0c000000 {
@@ -72,5 +73,14 @@
             interrupt-parent = <&espresso_pic>;
             interrupts = <24>;
         };
+
+        /* this doesn't quite work yet, disabling for now
+        sata: sata@0d160400 {
+            compatible = "generic-ahci";
+            reg = <0x0d160400 0xfc00>;
+
+            interrupt-parent = <&latte_ahball_pic>;
+            interrupts = <7>;
+        };*/
     };
 };
