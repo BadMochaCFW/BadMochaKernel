@@ -2,3 +2,5 @@
 config WIIU
 	bool "Nintendo Wii U"
 	depends on 6xx
+	#PICs
+	select IRQ_DOMAIN_HIERARCHY
