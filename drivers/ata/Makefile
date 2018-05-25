@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
 
+ccflags-$(CONFIG_WIIU) += -D__BE_IO_HACK__
+
 obj-$(CONFIG_ATA)		+= libata.o
 
 # non-SFF interface
