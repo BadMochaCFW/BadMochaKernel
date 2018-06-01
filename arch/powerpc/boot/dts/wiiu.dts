@@ -34,7 +34,7 @@
 
             clock-frequency = <1243125000>;     /* 1.243125GHz */
             bus-frequency = <248625000>;        /* 248.625MHz core-to-bus 5x */
-			timebase-frequency = <62156250>;    /* This value is probably quite wrong, it's only an approximation */
+            timebase-frequency = <62156250>;    /* This value is probably quite wrong, it's only an approximation */
 
             i-cache-line-size = <32>;
             d-cache-line-size = <32>;
@@ -62,6 +62,22 @@
         gx2: gx2@0c200000 {
             compatible = "nintendo,wiiufb";
             reg = <0x0c200000 0x10000>;
+        };
+
+        ehci_0: usb@0d040000 {
+            compatible = "nintendo,ehci-wiiu", "usb-ehci";
+            reg = <0x0d040000 0x100>;
+            interrupts = <4>;
+            interrupt-parent = <&latte_ahball_pic>;
+            big-endian-regs;
+        };
+
+        ehci_1: usb@0d120000 {
+            compatible = "nintendo,ehci-wiiu", "usb-ehci";
+            reg = <0x0d120000 0x100>;
+            interrupts = <16>;
+            interrupt-parent = <&latte_ahball_pic>;
+            big-endian-regs;
         };
 
         latte_ahball_pic: pic@0d800440 {

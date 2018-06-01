@@ -4,3 +4,8 @@ config WIIU
 	depends on 6xx
 	#PICs
 	select IRQ_DOMAIN_HIERARCHY
+	#USBs
+	select USB_ARCH_HAS_OHCI if USB_SUPPORT
+	select USB_ARCH_HAS_EHCI if USB_SUPPORT
+	select USB_EHCI_BIG_ENDIAN_MMIO if USB_SUPPORT
+
