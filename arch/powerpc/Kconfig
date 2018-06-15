@@ -987,7 +987,7 @@ config PPC_PCI_CHOICE
 config PCI
 	bool "PCI support" if PPC_PCI_CHOICE
 	default y if !40x && !CPM2 && !PPC_8xx && !PPC_83xx \
-		&& !PPC_85xx && !PPC_86xx && !GAMECUBE_COMMON
+		&& !PPC_85xx && !PPC_86xx && !GAMECUBE_COMMON && !WIIU
 	default PCI_QSPAN if PPC_8xx
 	select GENERIC_PCI_IOMAP
 	help

@@ -295,6 +295,7 @@ ps3)
     pie=
     ;;
 wiiu)
+    link_address='0x500000'
     platformo="$object/wiiu-head.o $object/wiiu.o"
     ;;
 ep88xc|ep405|ep8248e)
