@@ -7,6 +7,10 @@
     #address-cells = <1>;
     #size-cells = <1>;
 
+    chosen {
+        bootargs = "root=/dev/mmcblk0p2 rootwait";
+    };
+
     memory {
         device_type = "memory";
         reg = <0x00000000 0x02000000        /* MEM1 - 32MB */
@@ -62,6 +66,13 @@
         gx2: gx2@0c200000 {
             compatible = "nintendo,wiiufb";
             reg = <0x0c200000 0x10000>;
+        };
+
+        sdcard_0: sdhci@0d070000 {
+            compatible = "nintendo,wiiu-sdhci";
+            reg = <0x0d070000 0x200>;
+            interrupts = <7>;
+            interrupt-parent = <&latte_ahball_pic>;
         };
 
         ehci_0: usb@0d040000 {
