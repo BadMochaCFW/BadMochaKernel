@@ -490,6 +490,13 @@ config USB_OHCI_HCD_DAVINCI
 	  controller. This driver cannot currently be a loadable
 	  module because it lacks a proper PHY abstraction.
 
+config USB_OHCI_HCD_WIIU
+	bool "OHCI support for Nintendo Wii U"
+	depends on USB_OHCI_HCD
+	default y if WIIU
+	help
+	  Enables support for the OHCI controller in the Nintendo Wii U.
+
 config USB_OHCI_HCD_PPC_OF_BE
 	bool "OHCI support for OF platform bus (big endian)"
 	depends on PPC
