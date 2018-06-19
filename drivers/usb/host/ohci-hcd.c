@@ -1245,6 +1245,11 @@ MODULE_LICENSE ("GPL");
 #define TMIO_OHCI_DRIVER	ohci_hcd_tmio_driver
 #endif
 
+#ifdef CONFIG_USB_OHCI_HCD_WIIU
+#include "ohci-wiiu.c"
+#define WIIU_DRIVER wiiu_ohci_driver
+#endif
+
 static int __init ohci_hcd_mod_init(void)
 {
 	int retval = 0;
@@ -1292,10 +1297,19 @@ static int __init ohci_hcd_mod_init(void)
 	if (retval < 0)
 		goto error_tmio;
 #endif
+#ifdef WIIU_DRIVER
+	retval = platform_driver_register(&WIIU_DRIVER);
+	if (retval < 0)
+		goto error_wiiu;
 
 	return retval;
+#endif
 
 	/* Error path */
+#ifdef WIIU_DRIVER
+	platform_driver_unregister(&WIIU_DRIVER);
+ error_wiiu:
+#endif
 #ifdef TMIO_OHCI_DRIVER
 	platform_driver_unregister(&TMIO_OHCI_DRIVER);
  error_tmio:
@@ -1341,6 +1355,9 @@ static void __exit ohci_hcd_mod_exit(void)
 #endif
 #ifdef PS3_SYSTEM_BUS_DRIVER
 	ps3_ohci_driver_unregister(&PS3_SYSTEM_BUS_DRIVER);
+#endif
+#ifdef WIIU_DRIVER
+	platform_driver_unregister(&WIIU_DRIVER);
 #endif
 	debugfs_remove(ohci_debug_root);
 	clear_bit(USB_OHCI_LOADED, &usb_hcds_loaded);
