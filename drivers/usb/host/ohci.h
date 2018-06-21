@@ -420,7 +420,7 @@ struct ohci_hcd {
 #define	OHCI_QUIRK_AMD_PREFETCH	0x400			/* pre-fetch for ISO transfer */
 #define	OHCI_QUIRK_GLOBAL_SUSPEND	0x800		/* must suspend ports */
 #define	OHCI_QUIRK_QEMU		0x1000			/* relax timing expectations */
-
+#define	OHCI_QUIRK_WIIU		0x2000			/* run dummy TDs */
 	// there are also chip quirks/bugs in init logic
 
 	unsigned		prev_frame_no;
@@ -474,6 +474,12 @@ static inline int quirk_amdprefetch(struct ohci_hcd *ohci)
 {
 	return 0;
 }
+#endif
+
+#ifdef CONFIG_USB_OHCI_HCD_WIIU
+extern void wiiu_ohci_control_quirk(struct ohci_hcd *ohci);
+#else
+#define wiiu_ohci_control_quirk(...)
 #endif
 
 /* convert between an hcd pointer and the corresponding ohci_hcd */

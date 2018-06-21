@@ -97,7 +97,7 @@
             interrupts = <5>;
             interrupt-parent = <&latte_ahball_pic>;
 
-            big-endian;
+            big-endian-regs;
         };
 
         latte_ahball_pic: pic@0d800440 {
