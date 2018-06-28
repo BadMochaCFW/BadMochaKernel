@@ -24,6 +24,6 @@ typedef struct __attribute__((packed)) {
 
 #define LATTE_AHBALL_NR_IRQS    32
 
-void latte_ahball_pic_probe(void);
+void latte_ahball_pic_init(void);
 
 #endif

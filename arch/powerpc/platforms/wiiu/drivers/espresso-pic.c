@@ -26,32 +26,34 @@
 #include <asm/io.h>
 #include "espresso-pic.h"
 
+static DEFINE_PER_CPU(espresso_pic_t *, espresso_pic_cpu);
+
 /* IRQ chip operations
  */
 
 static void espresso_pic_mask_and_ack(struct irq_data* d) {
-	espresso_pic_t __iomem *regs = irq_data_get_irq_chip_data(d);
+	espresso_pic_t *pic = *this_cpu_ptr(&espresso_pic_cpu);
 	u32 mask = 1 << irqd_to_hwirq(d);
-	out_be32(&regs->icr, mask);
-	clrbits32(&regs->imr, mask);
+	out_be32(&pic->icr, mask);
+	clrbits32(&pic->imr, mask);
 }
 
 static void espresso_pic_ack(struct irq_data* d) {
-	espresso_pic_t __iomem *regs = irq_data_get_irq_chip_data(d);
+	espresso_pic_t *pic = *this_cpu_ptr(&espresso_pic_cpu);
 	u32 mask = 1 << irqd_to_hwirq(d);
-	out_be32(&regs->icr, mask);
+	out_be32(&pic->icr, mask);
 }
 
 static void espresso_pic_mask(struct irq_data* d) {
-	espresso_pic_t __iomem *regs = irq_data_get_irq_chip_data(d);
+	espresso_pic_t *pic = *this_cpu_ptr(&espresso_pic_cpu);
 	u32 mask = 1 << irqd_to_hwirq(d);
-	clrbits32(&regs->imr, mask);
+	clrbits32(&pic->imr, mask);
 }
 
 static void espresso_pic_unmask(struct irq_data* d) {
-	espresso_pic_t __iomem *regs = irq_data_get_irq_chip_data(d);
+	espresso_pic_t *pic = *this_cpu_ptr(&espresso_pic_cpu);
 	u32 mask = 1 << irqd_to_hwirq(d);
-	setbits32(&regs->imr, mask);
+	setbits32(&pic->imr, mask);
 }
 
 static struct irq_chip espresso_pic_chip = {
@@ -107,10 +109,10 @@ static struct irq_domain *espresso_irq_domain;
 
 unsigned int espresso_pic_get_irq(void)
 {
-	espresso_pic_t __iomem *regs = espresso_irq_domain->host_data;
+	espresso_pic_t *pic = *this_cpu_ptr(&espresso_pic_cpu);
 	u32 irq_status, irq;
 
-	irq_status = in_be32(&regs->icr) & in_be32(&regs->imr);
+	irq_status = in_be32(&pic->icr) & in_be32(&pic->imr);
 
 	if (irq_status == 0)
 		return 0;	//No IRQs pending
@@ -124,44 +126,40 @@ unsigned int espresso_pic_get_irq(void)
 
 /* Init function
  */
-static struct irq_domain* espresso_pic_init(struct device_node* np) {
-	struct irq_domain *irq_domain;
+void __init espresso_pic_init(void) {
+	struct device_node* np = of_find_compatible_node(NULL, NULL, "nintendo,espresso-pic");
+	struct irq_domain* host;
 	struct resource res;
-	espresso_pic_t __iomem *regs;
+	void __iomem *regbase;
+	unsigned cpu;
+
+	//This pic is needed
+	BUG_ON(!np);
 
 	//Map registers
 	BUG_ON(of_address_to_resource(np, 0, &res) != 0);
-	regs = ioremap(res.start, resource_size(&res));
-	BUG_ON(IS_ERR(regs));
+	regbase = ioremap(res.start, resource_size(&res));
+	BUG_ON(IS_ERR(regbase));
 
-	pr_info("controller at 0x%08x mapped to 0x%p\n", res.start, regs);
+	for_each_present_cpu(cpu) {
+		espresso_pic_t **pic = per_cpu_ptr(&espresso_pic_cpu, cpu);
+		
+		//Compute pic address
+		*pic = regbase + (sizeof(espresso_pic_t) * cpu);
 
-	//Mask and Ack all IRQs
-	out_be32(&regs->imr, 0);
-	out_be32(&regs->icr, 0xFFFFFFFF);
+		//Mask and Ack CPU IRQs
+		out_be32(&(*pic)->imr, 0);
+		out_be32(&(*pic)->icr, 0xFFFFFFFF);
 
-	//Register PIC
-	irq_domain = irq_domain_add_linear(np, ESPRESSO_NR_IRQS, &espresso_pic_ops, regs);
-	BUG_ON(!irq_domain);
+		pr_info("espresso pic for cpu %u at %08X\n", cpu, (unsigned)*pic);
+	}
+
+	//Register the PIC
+	host = irq_domain_add_linear(np, ESPRESSO_NR_IRQS, &espresso_pic_ops, NULL);
+	BUG_ON(!host);
 
 	//Save irq domain for espresso_pic_get_irq
-	espresso_irq_domain = irq_domain;
-
-	//Success
-	pr_info("successfully initialized\n");
-
-	return irq_domain;
-}
-
-/* Probe function
- */
-void espresso_pic_probe(void) {
-	struct device_node* np;
-	struct irq_domain* host;
-	np = of_find_compatible_node(NULL, NULL, "nintendo,espresso-pic");
-	BUG_ON(!np);
-
-	host = espresso_pic_init(np);
+	espresso_irq_domain = host;
 
 	irq_set_default_host(host);
 

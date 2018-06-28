@@ -67,12 +67,12 @@
                   0x0d000000 0x0d000000 0x00200000      /* Latte deivces */
                   0x0d800000 0x0d800000 0x00800000>;    /* Latte registers */
 
-        espresso_pic: pic@0c000000 {
+        espresso_pic: pic@0c000078 {
             #interrupt-cells = <1>;
             interrupt-controller;
 
             compatible = "nintendo,espresso-pic";
-            reg = <0x0c000000 0x8c>;
+            reg = <0x0c000078 0x18>;
         };
 
         gx2: gx2@0c200000 {
@@ -122,7 +122,7 @@
             interrupt-controller;
 
             compatible = "nintendo,latte-ahball-pic";
-            reg = <0x0d800440 0x10>;
+            reg = <0x0d800440 0x30>;
             interrupt-parent = <&espresso_pic>;
             interrupts = <24>;
         };

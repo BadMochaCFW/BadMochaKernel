@@ -28,32 +28,34 @@
 #include <asm/io.h>
 #include "latte-ahball-pic.h"
 
+static DEFINE_PER_CPU(lt_pic_t *, lt_pic_cpu);
+
 /* IRQ chip operations
  */
 
 static void latte_ahball_pic_mask_and_ack(struct irq_data *d) {
-	lt_pic_t __iomem *regs = irq_data_get_irq_chip_data(d);
+	lt_pic_t *pic = *this_cpu_ptr(&lt_pic_cpu);
 	u32 mask = 1 << irqd_to_hwirq(d);
-	out_be32(&regs->ahball_icr, mask);
-	clrbits32(&regs->ahball_imr, mask);
+	out_be32(&pic->ahball_icr, mask);
+	clrbits32(&pic->ahball_imr, mask);
 }
 
 static void latte_ahball_pic_ack(struct irq_data *d) {
-	lt_pic_t __iomem *regs = irq_data_get_irq_chip_data(d);
+	lt_pic_t *pic = *this_cpu_ptr(&lt_pic_cpu);
 	u32 mask = 1 << irqd_to_hwirq(d);
-	out_be32(&regs->ahball_icr, mask);
+	out_be32(&pic->ahball_icr, mask);
 }
 
 static void latte_ahball_pic_mask(struct irq_data *d) {
-	lt_pic_t __iomem *regs = irq_data_get_irq_chip_data(d);
+	lt_pic_t *pic = *this_cpu_ptr(&lt_pic_cpu);
 	u32 mask = 1 << irqd_to_hwirq(d);
-	clrbits32(&regs->ahball_imr, mask);
+	clrbits32(&pic->ahball_imr, mask);
 }
 
 static void latte_ahball_pic_unmask(struct irq_data *d) {
-	lt_pic_t __iomem *regs = irq_data_get_irq_chip_data(d);
+	lt_pic_t *pic = *this_cpu_ptr(&lt_pic_cpu);
 	u32 mask = 1 << irqd_to_hwirq(d);
-	setbits32(&regs->ahball_imr, mask);
+	setbits32(&pic->ahball_imr, mask);
 }
 
 static struct irq_chip latte_ahball_pic = {
@@ -103,10 +105,10 @@ const struct irq_domain_ops latte_ahball_pic_ops = {
 /* Determinate if there are interrupts pending
  */
 unsigned int latte_ahball_pic_get_irq(struct irq_domain *h) {
-	lt_pic_t __iomem *regs = h->host_data;
+	lt_pic_t *pic = *this_cpu_ptr(&lt_pic_cpu);
 	u32 irq_status, irq;
 
-	irq_status = in_be32(&regs->ahball_icr) & in_be32(&regs->ahball_imr);
+	irq_status = in_be32(&pic->ahball_icr) & in_be32(&pic->ahball_imr);
 
 	if (irq_status == 0)
 		return 0;	//No IRQs pending
@@ -144,55 +146,43 @@ static void latte_ahball_irq_cascade(struct irq_desc *desc) {
 
 /* Init function
  */
-static void latte_ahball_pic_init(struct device_node *np) {
-	int irq_cascade;
-	struct irq_domain *irq_domain;
+void __init latte_ahball_pic_init(void) {
+	struct device_node *np = of_find_compatible_node(NULL, NULL, "nintendo,latte-ahball-pic");
+	struct irq_domain* host;
 	struct resource res;
-	lt_pic_t __iomem *regs;
+	int irq_cascade;
+	void __iomem *regbase;
+	unsigned cpu;
 
-	//Check if the driver is valid
-	if(!of_get_property(np, "interrupts", NULL)) {
-		pr_err("no cascade interrupt specified\n");
-		return;
-	}
+	//This pic is needed for all the devices, make sure it's valid
+	BUG_ON(!np);
+	BUG_ON(!of_get_property(np, "interrupts", NULL));
 
 	//Map registers
-	if(of_address_to_resource(np, 0, &res)) {
-		pr_err("failed to own register area\n");
-		return;
-	}
-	regs = ioremap(res.start, resource_size(&res));
-	if(IS_ERR(regs)) {
-		pr_err("ioremap failed\n");
-		return;
-	}
-	pr_info("controller at 0x%08x mapped to 0x%p\n", res.start, regs);
+	BUG_ON(of_address_to_resource(np, 0, &res));
+	regbase = ioremap(res.start, resource_size(&res));
+	BUG_ON(IS_ERR(regbase));
 
-	//Mask and Ack all IRQs
-	out_be32(&regs->ahball_imr, 0);
-	out_be32(&regs->ahball_icr, 0xffffffff);
+	for_each_present_cpu(cpu) {
+		lt_pic_t **pic = per_cpu_ptr(&lt_pic_cpu, cpu);
+		
+		//Compute pic address
+		*pic = regbase + (sizeof(lt_pic_t) * cpu);
+
+		//Mask and Ack CPU IRQs
+		out_be32(&(*pic)->ahball_imr, 0);
+		out_be32(&(*pic)->ahball_icr, 0xFFFFFFFF);
+
+		pr_info("latte pic for cpu %u at %08X\n", cpu, (unsigned)*pic);
+	}
 
 	//Register PIC
-	irq_domain = irq_domain_add_linear(np, LATTE_AHBALL_NR_IRQS, &latte_ahball_pic_ops, regs);
-	if (!irq_domain) {
-		pr_err("failed to add irq domain\n");
-		iounmap(regs);
-		return;
-	}
+	host = irq_domain_add_linear(np, LATTE_AHBALL_NR_IRQS, &latte_ahball_pic_ops, NULL);
+	BUG_ON(!host);
 
 	//Setup cascade interrupt
 	irq_cascade = irq_of_parse_and_map(np, 0);
-	irq_set_chained_handler_and_data(irq_cascade, latte_ahball_irq_cascade, irq_domain);
+	irq_set_chained_handler_and_data(irq_cascade, latte_ahball_irq_cascade, host);
 
-	//Success
-	pr_info("successfully initialized\n");
-}
-
-/* Probe function
- */
-void latte_ahball_pic_probe(void) {
-	struct device_node *np;
-
-	for_each_compatible_node(np, NULL, "nintendo,latte-ahball-pic")
-		latte_ahball_pic_init(np);
+	of_node_put(np);
 }

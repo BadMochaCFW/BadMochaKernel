@@ -18,8 +18,8 @@ static int __init wiiu_probe(void) {
 }
 
 static void wiiu_init_irq(void) {
-    espresso_pic_probe();
-    latte_ahball_pic_probe();
+    espresso_pic_init();
+    latte_ahball_pic_init();
 }
 
 define_machine(wiiu) {
