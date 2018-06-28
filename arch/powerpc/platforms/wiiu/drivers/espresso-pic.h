@@ -62,6 +62,6 @@ typedef struct __attribute__((packed)) {
 #define ESPRESSO_NR_IRQS 32
 
 unsigned int espresso_pic_get_irq(void);
-void espresso_pic_probe(void);
+void espresso_pic_init(void);
 
 #endif
