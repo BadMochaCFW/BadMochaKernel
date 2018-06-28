@@ -35,15 +35,27 @@
         PowerPC,espresso@0 {
             device_type = "cpu";
             reg = <0>;
-
             clock-frequency = <1243125000>;     /* 1.243125GHz */
             bus-frequency = <248625000>;        /* 248.625MHz core-to-bus 5x */
-            timebase-frequency = <62156250>;    /* This value is probably quite wrong, it's only an approximation */
-
+            timebase-frequency = <62156250>;    /* 1/4 of the bus clock */
+            i-cache-size = <32768>; /* 32K icache */
             i-cache-line-size = <32>;
+            i-cache-block-size = <32>;
+            i-cache-sets = <128>;
+            d-cache-size = <32768>; /* 32K dcache */
             d-cache-line-size = <32>;
-            i-cache-size = <32768>;             /* very wrong */
-            d-cache-size = <32768>;             /* very wrong */
+            d-cache-block-size = <32>;
+            d-cache-sets = <128>;
+            next-level-cache = <&L2_0>;
+            L2_0:l2-cache {
+                compatible = "cache";
+                cache-level = <2>;
+                cache-unified;
+                cache-size = <0x80000>; /* 512KB L2 */
+                cache-line-size = <64>;
+                cache-block-size = <32>;
+                cache-sets = <2048>;
+            };
         };
     };
 
