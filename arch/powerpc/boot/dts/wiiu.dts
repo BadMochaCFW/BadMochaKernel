@@ -100,6 +100,11 @@
             big-endian-regs;
         };
 
+        latte_ipc: ipc@0d800000 {
+            compatible = "nintendo,latte-ipc";
+            reg = <0x0d800000 0x10>;
+        };
+
         latte_ahball_pic: pic@0d800440 {
             #interrupt-cells = <1>;
             interrupt-controller;
