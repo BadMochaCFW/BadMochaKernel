@@ -262,11 +262,21 @@ static void __init __mapin_ram_chunk(unsigned long offset, unsigned long top)
 void __init mapin_ram(void)
 {
 	unsigned long s, top;
+#if defined(CONFIG_WIIU)
+	struct memblock_region* reg;
+#endif
 
-#ifndef CONFIG_WII
+#if !defined(CONFIG_WII) && !defined(CONFIG_WIIU)
 	top = total_lowmem;
 	s = mmu_mapin_ram(top);
 	__mapin_ram_chunk(s, top);
+#elif defined(CONFIG_WIIU)
+	for_each_memblock(memory, reg) {
+		s = reg->base;
+		top = reg->base + reg->size;
+		__mapin_ram_chunk(s, top);
+		printk("wiiu: mapped %08x - %08lx:%08lx\n", reg->size, s, top);
+	}
 #else
 	if (!wii_hole_size) {
 		s = mmu_mapin_ram(total_lowmem);
