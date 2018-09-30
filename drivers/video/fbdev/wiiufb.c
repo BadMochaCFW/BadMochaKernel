@@ -81,8 +81,8 @@ struct wiiufb_platform_data {
 
 // Default wiiufb configuration
 static struct wiiufb_platform_data wiiu_fb_default_pdata = {
-	.width = 1280,
-	.height = 720,
+	.width = 854,
+	.height = 480,
 };
 
 static struct fb_fix_screeninfo wiiu_fb_fix = {
