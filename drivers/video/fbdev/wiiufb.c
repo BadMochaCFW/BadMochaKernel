@@ -66,11 +66,11 @@ MODULE_PARM_DESC(leak_mmio, "oops");
 #define BYTES_PER_PIXEL	4
 #define BITS_PER_PIXEL	(BYTES_PER_PIXEL * 8)
 
-// RGBA8888
-#define OFFS_RED		16
-#define OFFS_GREEN		8
-#define OFFS_BLUE		0
-#define OFFS_ALPHA		24
+// ARGB8888
+#define OFFS_RED		8
+#define OFFS_GREEN		16
+#define OFFS_BLUE		24
+#define OFFS_ALPHA		0
 
 // Use 16 palettes
 #define MAX_PALETTES	16
