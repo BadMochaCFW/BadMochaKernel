@@ -120,10 +120,11 @@ static int wiiufb_setcolreg(unsigned regno, unsigned red, unsigned green, unsign
 
 	// convert RGB to grayscale
 	if (info->var.grayscale)
-		red = green = blue = (19595 * red + 38470 * green + 7471 * blue) >> 16; //still using RGB565 version, TODO update for ARGB8888 potentially?
+		red = green = blue = (19595 * red + 38470 * green + 7471 * blue);// >> 16; //still using RGB565 version, TODO update for ARGB8888 potentially?
 
-	// 16 bit RGB565
-	pal[regno] = (transp & 0xff00) | ((red & 0xff00) >> 8) | ((green & 0xff00) >> 16) | ((blue & 0xf800) >> 24);
+	// 32 bit ARGB8888
+	// Currently forcing magenta as a test
+	pal[regno] = 0b11111111111111110000000011111111; //(transp & 0xff00) | ((red & 0xff00) >> 8) | ((green & 0xff00) >> 16) | ((blue & 0xf800) >> 24);
 	return 0;
 }
 
