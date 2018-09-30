@@ -124,7 +124,7 @@ static int wiiufb_setcolreg(unsigned regno, unsigned red, unsigned green, unsign
 
 	// 32 bit ARGB8888
 	// Currently forcing magenta as a test
-	pal[regno] = 0b11111111111111110000000011111111; //(transp & 0xff00) | ((red & 0xff00) >> 8) | ((green & 0xff00) >> 16) | ((blue & 0xf800) >> 24);
+	pal[regno] = (transp & 0xff00) | ((red & 0xff00) >> 8) | ((green & 0xff00) >> 16) | ((blue & 0xf800) >> 24);
 	return 0;
 }
 
