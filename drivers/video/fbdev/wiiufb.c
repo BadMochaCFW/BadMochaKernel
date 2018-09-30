@@ -59,17 +59,18 @@ MODULE_PARM_DESC(leak_mmio, "oops");
 
 /*
  * In default fb mode we only support a single mode: 1280x720 32 bit true color.
- * Each pixel gets a word (32 bits) of memory, organized as RGBA8888
+ * Each pixel gets a word (32 bits) of memory, organized as RGBA8888...typically. If the below info is correct, WiiU is configured to use ARGB8888
  */
 
-// 16 bit
-#define BYTES_PER_PIXEL	2
+// 32 bit
+#define BYTES_PER_PIXEL	4
 #define BITS_PER_PIXEL	(BYTES_PER_PIXEL * 8)
 
-// RGB565
-#define OFFS_RED		11
-#define OFFS_GREEN		5
+// RGBA8888
+#define OFFS_RED		16
+#define OFFS_GREEN		8
 #define OFFS_BLUE		0
+#define OFFS_ALPHA		24
 
 // Use 16 palettes
 #define MAX_PALETTES	16
@@ -94,10 +95,10 @@ static struct fb_fix_screeninfo wiiu_fb_fix = {
 static struct fb_var_screeninfo wiiu_fb_var = {
 	.bits_per_pixel =	BITS_PER_PIXEL,
 
-	.red =		{ OFFS_RED, 5, 0 },
-	.green =	{ OFFS_GREEN, 6, 0 },
-	.blue =		{ OFFS_BLUE, 5, 0 },
-	.transp =	{ 0, 0, 0 },
+	.red =		{ OFFS_RED, 8, 0 },
+	.green =	{ OFFS_GREEN, 8, 0 },
+	.blue =		{ OFFS_BLUE, 8, 0 },
+	.transp =	{ OFFS_ALPHA, 8, 0 },
 
 	.activate =	FB_ACTIVATE_NOW
 };
@@ -110,19 +111,19 @@ struct wiiufb_drvdata {
 	dma_addr_t    fb_phys;								/* phys. address of the frame buffer */
 	u32 	      pseudo_palette[MAX_PALETTES];			/* Fake palette of 16 colors */
 };
-
+	
 static int wiiufb_setcolreg(unsigned regno, unsigned red, unsigned green, unsigned blue, unsigned transp, struct fb_info *info) {
 	u32 *pal = info->pseudo_palette;
-
+	
 	if (regno >= MAX_PALETTES)
 		return -EINVAL;
 
 	// convert RGB to grayscale
 	if (info->var.grayscale)
-		red = green = blue = (19595 * red + 38470 * green + 7471 * blue) >> 16;
+		red = green = blue = (19595 * red + 38470 * green + 7471 * blue) >> 16; //still using RGB565 version, TODO update for ARGB8888 potentially?
 
 	// 16 bit RGB565
-	pal[regno] = (red & 0xf800) | ((green & 0xfc00) >> 5) | ((blue & 0xf800) >> 11);
+	pal[regno] = (transp & 0xff00) | ((red & 0xff00) >> 8) | ((green & 0xff00) >> 16) | ((blue & 0xf800) >> 24);
 	return 0;
 }
 
@@ -148,7 +149,7 @@ static int wiiufb_mmap(struct fb_info *info, struct vm_area_struct * vma)
 		len = info->fix.mmio_len;
 	}
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
-
+	
 	return vm_iomap_memory(vma, start, len);
 }
 
@@ -168,17 +169,17 @@ static int wiiufb_assign(struct platform_device *pdev, struct wiiufb_drvdata *dr
 	struct device *dev = &pdev->dev;
 	int fbsize = pdata->width * pdata->height * BYTES_PER_PIXEL;
 	struct resource* res;
-
+	
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	drvdata->regs = devm_ioremap_resource(dev, res);
 	if (IS_ERR(drvdata->regs)) {
 		dev_err(dev, "Failed to map registers!\n");
 		return -ENOMEM;
 	}
-
+	
 	drvdata->regs_phys = res->start;
 	drvdata->fb_virt = dma_zalloc_coherent(dev, PAGE_ALIGN(fbsize), &drvdata->fb_phys, GFP_KERNEL);
-
+	
 	if (!drvdata->fb_virt) {
 		dev_err(dev, "Could not allocate framebuffer!\n");
 		return -ENOMEM;
@@ -189,16 +190,16 @@ static int wiiufb_assign(struct platform_device *pdev, struct wiiufb_drvdata *dr
 	writereg(D1GRPH_PRIMARY_SURFACE_ADDRESS, 0);
 	writereg(D1GRPH_PITCH, 0);
 	setreg(D1GRPH_ENABLE, D1GRPH_ENABLE_REG, 1);
-	setreg(D1GRPH_CONTROL, D1GRPH_DEPTH, D1GRPH_DEPTH_16BPP);
-	setreg(D1GRPH_CONTROL, D1GRPH_FORMAT, D1GRPH_FORMAT_16BPP_RGB565);
+	setreg(D1GRPH_CONTROL, D1GRPH_DEPTH, D1GRPH_DEPTH_32BPP);
+	setreg(D1GRPH_CONTROL, D1GRPH_FORMAT, D1GRPH_FORMAT_32BPP_ARGB8888);
 	setreg(D1GRPH_CONTROL, D1GRPH_ADDRESS_TRANSLATION, D1GRPH_ADDRESS_TRANSLATION_PHYS);
 	setreg(D1GRPH_CONTROL, D1GRPH_PRIVILEGED_ACCESS, D1GRPH_PRIVILEGED_ACCESS_DISABLE);
 	setreg(D1GRPH_CONTROL, D1GRPH_ARRAY_MODE, D1GRPH_ARRAY_LINEAR_ALIGNED);
 	setreg(D1GRPH_PRIMARY_SURFACE_ADDRESS, D1GRPH_PRIMARY_SURFACE_ADDR, drvdata->fb_phys);
 	setreg(D1GRPH_PITCH, D1GRPH_PITCH_VAL, pdata->width);
 	leak_mmio = readreg(D1GRPH_CONTROL);
-
-	setreg(D1GRPH_SWAP_CNTL, D1GRPH_ENDIAN_SWAP, D1GRPH_ENDIAN_SWAP_16);
+	
+	setreg(D1GRPH_SWAP_CNTL, D1GRPH_ENDIAN_SWAP, D1GRPH_ENDIAN_SWAP_32);
 	setreg(D1GRPH_SWAP_CNTL, D1GRPH_RED_CROSSBAR, D1GRPH_RED_CROSSBAR_RED);
 	setreg(D1GRPH_SWAP_CNTL, D1GRPH_GREEN_CROSSBAR, D1GRPH_GREEN_CROSSBAR_GREEN);
 	setreg(D1GRPH_SWAP_CNTL, D1GRPH_BLUE_CROSSBAR, D1GRPH_BLUE_CROSSBAR_BLUE);
@@ -236,7 +237,7 @@ static int wiiufb_assign(struct platform_device *pdev, struct wiiufb_drvdata *dr
 		fb_dealloc_cmap(&drvdata->info.cmap);
 		return rc;
 	}
-
+		
 	return 0;
 }
 
