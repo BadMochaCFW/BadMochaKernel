@@ -72,9 +72,20 @@
             reg = <0x0c000078 0x18>;
         };
 
-        gx2: gx2@0c200000 {
+        gx2fb0: gx20@0c200000 {
             compatible = "nintendo,wiiufb";
-            reg = <0x0c200000 0x10000>;
+            reg = <0x0c206000 0x1000>;
+
+            default-width = <1280>;
+            default-height = <720>;
+        };
+
+        gx2fb1: gx21@0c200000 {
+            compatible = "nintendo,wiiufb";
+            reg = <0x0c207000 0x1000>;
+
+            default-width = <854>;
+            default-height = <480>;
         };
 
         sdcard_0: sdhci@0d070000 {

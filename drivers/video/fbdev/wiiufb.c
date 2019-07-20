@@ -78,12 +78,6 @@ struct wiiufb_platform_data {
 	u32 width, height;         /* resolution of screen in pixels */
 };
 
-// Default wiiufb configuration
-static struct wiiufb_platform_data wiiu_fb_default_pdata = {
-	.width = 1280,
-	.height = 720,
-};
-
 static struct fb_fix_screeninfo wiiu_fb_fix = {
 	.id =		"wiiufb",
 	.type =		FB_TYPE_PACKED_PIXELS,
@@ -184,25 +178,25 @@ static int wiiufb_assign(struct platform_device *pdev, struct wiiufb_drvdata *dr
 		return -ENOMEM;
 	}
 
-	writereg(D1GRPH_ENABLE, 0);
-	writereg(D1GRPH_CONTROL, 0);
-	writereg(D1GRPH_PRIMARY_SURFACE_ADDRESS, 0);
-	writereg(D1GRPH_PITCH, 0);
-	setreg(D1GRPH_ENABLE, D1GRPH_ENABLE_REG, 1);
-	setreg(D1GRPH_CONTROL, D1GRPH_DEPTH, D1GRPH_DEPTH_16BPP);
-	setreg(D1GRPH_CONTROL, D1GRPH_FORMAT, D1GRPH_FORMAT_16BPP_RGB565);
-	setreg(D1GRPH_CONTROL, D1GRPH_ADDRESS_TRANSLATION, D1GRPH_ADDRESS_TRANSLATION_PHYS);
-	setreg(D1GRPH_CONTROL, D1GRPH_PRIVILEGED_ACCESS, D1GRPH_PRIVILEGED_ACCESS_DISABLE);
-	setreg(D1GRPH_CONTROL, D1GRPH_ARRAY_MODE, D1GRPH_ARRAY_LINEAR_ALIGNED);
-	setreg(D1GRPH_PRIMARY_SURFACE_ADDRESS, D1GRPH_PRIMARY_SURFACE_ADDR, drvdata->fb_phys);
-	setreg(D1GRPH_PITCH, D1GRPH_PITCH_VAL, pdata->width);
-	leak_mmio = readreg(D1GRPH_CONTROL);
+	writereg(DGRPH_ENABLE, 0);
+	writereg(DGRPH_CONTROL, 0);
+	writereg(DGRPH_PRIMARY_SURFACE_ADDRESS, 0);
+	writereg(DGRPH_PITCH, 0);
+	setreg(DGRPH_ENABLE, DGRPH_ENABLE_REG, 1);
+	setreg(DGRPH_CONTROL, DGRPH_DEPTH, DGRPH_DEPTH_16BPP);
+	setreg(DGRPH_CONTROL, DGRPH_FORMAT, DGRPH_FORMAT_16BPP_RGB565);
+	setreg(DGRPH_CONTROL, DGRPH_ADDRESS_TRANSLATION, DGRPH_ADDRESS_TRANSLATION_PHYS);
+	setreg(DGRPH_CONTROL, DGRPH_PRIVILEGED_ACCESS, DGRPH_PRIVILEGED_ACCESS_DISABLE);
+	setreg(DGRPH_CONTROL, DGRPH_ARRAY_MODE, DGRPH_ARRAY_LINEAR_ALIGNED);
+	setreg(DGRPH_PRIMARY_SURFACE_ADDRESS, DGRPH_PRIMARY_SURFACE_ADDR, drvdata->fb_phys);
+	setreg(DGRPH_PITCH, DGRPH_PITCH_VAL, pdata->width);
+	leak_mmio = readreg(DGRPH_CONTROL);
 
-	setreg(D1GRPH_SWAP_CNTL, D1GRPH_ENDIAN_SWAP, D1GRPH_ENDIAN_SWAP_16);
-	setreg(D1GRPH_SWAP_CNTL, D1GRPH_RED_CROSSBAR, D1GRPH_RED_CROSSBAR_RED);
-	setreg(D1GRPH_SWAP_CNTL, D1GRPH_GREEN_CROSSBAR, D1GRPH_GREEN_CROSSBAR_GREEN);
-	setreg(D1GRPH_SWAP_CNTL, D1GRPH_BLUE_CROSSBAR, D1GRPH_BLUE_CROSSBAR_BLUE);
-	setreg(D1GRPH_SWAP_CNTL, D1GRPH_ALPHA_CROSSBAR, D1GRPH_ALPHA_CROSSBAR_ALPHA);
+	setreg(DGRPH_SWAP_CNTL, DGRPH_ENDIAN_SWAP, DGRPH_ENDIAN_SWAP_16);
+	setreg(DGRPH_SWAP_CNTL, DGRPH_RED_CROSSBAR, DGRPH_RED_CROSSBAR_RED);
+	setreg(DGRPH_SWAP_CNTL, DGRPH_GREEN_CROSSBAR, DGRPH_GREEN_CROSSBAR_GREEN);
+	setreg(DGRPH_SWAP_CNTL, DGRPH_BLUE_CROSSBAR, DGRPH_BLUE_CROSSBAR_BLUE);
+	setreg(DGRPH_SWAP_CNTL, DGRPH_ALPHA_CROSSBAR, DGRPH_ALPHA_CROSSBAR_ALPHA);
 
 	/* Fill struct fb_info */
 	drvdata->info.device = dev;
@@ -253,7 +247,14 @@ static int wiiufb_probe(struct platform_device *pdev) {
 	struct wiiufb_platform_data pdata;
 	struct wiiufb_drvdata *drvdata;
 
-	pdata = wiiu_fb_default_pdata;
+	if (of_property_read_u32(pdev->dev.of_node, "default-width", &pdata.width)) {
+		pdata.width = 1280;
+	}
+	if (of_property_read_u32(pdev->dev.of_node, "default-height", &pdata.height)) {
+		pdata.height = 720;
+	}
+
+	pr_info("wiiufb: making %dx%d framebuffer\n", pdata.width, pdata.height);
 
 	/* Allocate the driver data region */
 	drvdata = devm_kzalloc(&pdev->dev, sizeof(*drvdata), GFP_KERNEL);
