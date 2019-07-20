@@ -123,11 +123,29 @@
             big-endian-regs;
         };
 
+        ohci_1_0: usb@0d130000 {
+            compatible = "nintendo,ohci-wiiu";
+            reg = <0x0d130000 0x100>;
+            interrupts = <35>;
+            interrupt-parent = <&latte_ahball_pic>;
+
+            big-endian-regs;
+        };
+
         ehci_2: usb@0d140000 {
             compatible = "nintendo,ehci-wiiu", "usb-ehci";
             reg = <0x0d140000 0x100>;
             interrupts = <36>;
             interrupt-parent = <&latte_ahball_pic>;
+            big-endian-regs;
+        };
+        
+        ohci_2_0: usb@0d150000 {
+            compatible = "nintendo,ohci-wiiu";
+            reg = <0x0d150000 0x100>;
+            interrupts = <37>;
+            interrupt-parent = <&latte_ahball_pic>;
+
             big-endian-regs;
         };
 
