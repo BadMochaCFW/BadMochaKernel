@@ -21,11 +21,6 @@
         #address-cells = <1>;
         #size-cells = <1>;
         ranges;
-
-        udbg_reserved: udbg@178C0000 {
-            reg = <0x178C0000 0x1C0000>;
-            no-map;
-        };
     };
 
     cpus {
@@ -87,18 +82,17 @@
             interrupt-parent = <&latte_ahball_pic>;
         };
 
+        wifi_0: sdhci@0d080000 {
+            compatible = "nintendo,wiiu-sdhci";
+            reg = <0x0d080000 0x200>;
+            interrupts = <8>;
+            interrupt-parent = <&latte_ahball_pic>;
+        };
+
         ehci_0: usb@0d040000 {
             compatible = "nintendo,ehci-wiiu", "usb-ehci";
             reg = <0x0d040000 0x100>;
             interrupts = <4>;
-            interrupt-parent = <&latte_ahball_pic>;
-            big-endian-regs;
-        };
-
-        ehci_1: usb@0d120000 {
-            compatible = "nintendo,ehci-wiiu", "usb-ehci";
-            reg = <0x0d120000 0x100>;
-            interrupts = <16>;
             interrupt-parent = <&latte_ahball_pic>;
             big-endian-regs;
         };
@@ -109,6 +103,23 @@
             interrupts = <5>;
             interrupt-parent = <&latte_ahball_pic>;
 
+            big-endian-regs;
+        };
+
+        ohci_0_1: usb@0d060000 {
+            compatible = "nintendo,ohci-wiiu";
+            reg = <0x0d060000 0x100>;
+            interrupts = <6>;
+            interrupt-parent = <&latte_ahball_pic>;
+
+            big-endian-regs;
+        };
+
+        ehci_1: usb@0d120000 {
+            compatible = "nintendo,ehci-wiiu", "usb-ehci";
+            reg = <0x0d120000 0x100>;
+            interrupts = <16>;
+            interrupt-parent = <&latte_ahball_pic>;
             big-endian-regs;
         };
 
