@@ -1,4 +1,6 @@
 /dts-v1/;
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
 
 / {
     model = "nintendo,wiiu";
@@ -89,6 +91,47 @@
             interrupt-parent = <&latte_ahball_pic>;
         };
 
+        gpio: gpio@0d8000c0 {
+            #gpio-cells = <2>;
+            compatible = "nintendo,latte-gpio", "nintendo,hollywood-gpio";
+            
+            reg = <0x0d8000c0 0x40>;
+            gpio-controller;
+            /* TODO: we do have a few more gpios */
+            ngpios = <24>;
+            
+            gpio-line-names =
+                "POWER", "DWIFI", "FAN", "DC_DC",
+                "", "Esp10WorkAround", "", "",
+                "PADPD", "", "EEP_CS", "EEP_CLK",
+                "EEP_MOSI", "EEP_MISO", "AVE_SCL", "AVE_SDA",
+                "DEBUG0", "DEBUG1", "DEBUG2", "DEBUG3",
+                "DEBUG4", "DEBUG5", "DEBUG6", "DEBUG7";
+
+            interrupt-controller;
+            #interrupt-cells = <2>;
+            interrupts = <10>;
+            interrupt-parent = <&latte_ahball_pic>;
+        };
+
+        gpio2: gpio2@0d8000c0 {
+            #gpio-cells = <2>;
+            compatible = "nintendo,latte-gpio", "nintendo,hollywood-gpio";
+            
+            reg = <0x0d800520 0x40>;
+            gpio-controller;
+            ngpios = <7>;
+            
+            gpio-line-names =
+                "FANSPEED", "SMC_SCL", "SMC_SDA", "DC_DC2",
+                "AVE_INT", "", "AVE_RESET";
+
+            interrupt-controller;
+            #interrupt-cells = <2>;
+            interrupts = <10>;
+            interrupt-parent = <&latte_ahball_pic>;
+        };
+
         ehci_0: usb@0d040000 {
             compatible = "nintendo,ehci-wiiu", "usb-ehci";
             reg = <0x0d040000 0x100>;
@@ -172,5 +215,17 @@
             interrupt-parent = <&latte_ahball_pic>;
             interrupts = <7>;
         };*/
+    };
+
+    /* TODO make this gpio-keyed once hollywood-gpio supports interrupts */
+    gpio-keys-polled {
+        poll-interval = <50>;
+        compatible = "gpio-keys-polled";
+        
+        power {
+            label = "Power Button";
+            gpios = <&gpio 0 GPIO_ACTIVE_HIGH>;
+            linux,code = <KEY_POWER>;
+        };
     };
 };
