@@ -63,22 +63,33 @@ struct kfd_topology_device *kfd_topology_device_by_proximity_domain(
 	return device;
 }
 
-struct kfd_dev *kfd_device_by_id(uint32_t gpu_id)
+struct kfd_topology_device *kfd_topology_device_by_id(uint32_t gpu_id)
 {
-	struct kfd_topology_device *top_dev;
-	struct kfd_dev *device = NULL;
+	struct kfd_topology_device *top_dev = NULL;
+	struct kfd_topology_device *ret = NULL;
 
 	down_read(&topology_lock);
 
 	list_for_each_entry(top_dev, &topology_device_list, list)
 		if (top_dev->gpu_id == gpu_id) {
-			device = top_dev->gpu;
+			ret = top_dev;
 			break;
 		}
 
 	up_read(&topology_lock);
 
-	return device;
+	return ret;
+}
+
+struct kfd_dev *kfd_device_by_id(uint32_t gpu_id)
+{
+	struct kfd_topology_device *top_dev;
+
+	top_dev = kfd_topology_device_by_id(gpu_id);
+	if (!top_dev)
+		return NULL;
+
+	return top_dev->gpu;
 }
 
 struct kfd_dev *kfd_device_by_pci_dev(const struct pci_dev *pdev)
@@ -1061,8 +1072,6 @@ static uint32_t kfd_generate_gpu_id(struct kfd_dev *gpu)
  *		the GPU device is not already present in the topology device
  *		list then return NULL. This means a new topology device has to
  *		be created for this GPU.
- * TODO: Rather than assiging @gpu to first topology device withtout
- *		gpu attached, it will better to have more stringent check.
  */
 static struct kfd_topology_device *kfd_assign_gpu(struct kfd_dev *gpu)
 {
@@ -1070,12 +1079,20 @@ static struct kfd_topology_device *kfd_assign_gpu(struct kfd_dev *gpu)
 	struct kfd_topology_device *out_dev = NULL;
 
 	down_write(&topology_lock);
-	list_for_each_entry(dev, &topology_device_list, list)
+	list_for_each_entry(dev, &topology_device_list, list) {
+		/* Discrete GPUs need their own topology device list
+		 * entries. Don't assign them to CPU/APU nodes.
+		 */
+		if (!gpu->device_info->needs_iommu_device &&
+		    dev->node_props.cpu_cores_count)
+			continue;
+
 		if (!dev->gpu && (dev->node_props.simd_count > 0)) {
 			dev->gpu = gpu;
 			out_dev = dev;
 			break;
 		}
+	}
 	up_write(&topology_lock);
 	return out_dev;
 }
@@ -1236,6 +1253,12 @@ int kfd_topology_add_device(struct kfd_dev *gpu)
 	case CHIP_POLARIS11:
 		pr_debug("Adding doorbell packet type capability\n");
 		dev->node_props.capability |= ((HSA_CAP_DOORBELL_TYPE_1_0 <<
+			HSA_CAP_DOORBELL_TYPE_TOTALBITS_SHIFT) &
+			HSA_CAP_DOORBELL_TYPE_TOTALBITS_MASK);
+		break;
+	case CHIP_VEGA10:
+	case CHIP_RAVEN:
+		dev->node_props.capability |= ((HSA_CAP_DOORBELL_TYPE_2_0 <<
 			HSA_CAP_DOORBELL_TYPE_TOTALBITS_SHIFT) &
 			HSA_CAP_DOORBELL_TYPE_TOTALBITS_MASK);
 		break;

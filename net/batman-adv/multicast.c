@@ -325,16 +325,12 @@ static void batadv_mcast_mla_list_free(struct hlist_head *mcast_list)
  * translation table except the ones listed in the given mcast_list.
  *
  * If mcast_list is NULL then all are retracted.
- *
- * Do not call outside of the mcast worker! (or cancel mcast worker first)
  */
 static void batadv_mcast_mla_tt_retract(struct batadv_priv *bat_priv,
 					struct hlist_head *mcast_list)
 {
 	struct batadv_hw_addr *mcast_entry;
 	struct hlist_node *tmp;
-
-	WARN_ON(delayed_work_pending(&bat_priv->mcast.work));
 
 	hlist_for_each_entry_safe(mcast_entry, tmp, &bat_priv->mcast.mla_list,
 				  list) {
@@ -359,16 +355,12 @@ static void batadv_mcast_mla_tt_retract(struct batadv_priv *bat_priv,
  *
  * Adds multicast listener announcements from the given mcast_list to the
  * translation table if they have not been added yet.
- *
- * Do not call outside of the mcast worker! (or cancel mcast worker first)
  */
 static void batadv_mcast_mla_tt_add(struct batadv_priv *bat_priv,
 				    struct hlist_head *mcast_list)
 {
 	struct batadv_hw_addr *mcast_entry;
 	struct hlist_node *tmp;
-
-	WARN_ON(delayed_work_pending(&bat_priv->mcast.work));
 
 	if (!mcast_list)
 		return;
@@ -658,7 +650,10 @@ static void batadv_mcast_mla_update(struct work_struct *work)
 	priv_mcast = container_of(delayed_work, struct batadv_priv_mcast, work);
 	bat_priv = container_of(priv_mcast, struct batadv_priv, mcast);
 
+	spin_lock(&bat_priv->mcast.mla_lock);
 	__batadv_mcast_mla_update(bat_priv);
+	spin_unlock(&bat_priv->mcast.mla_lock);
+
 	batadv_mcast_start_timer(bat_priv);
 }
 
@@ -813,9 +808,6 @@ static int batadv_mcast_forw_mode_check(struct batadv_priv *bat_priv,
 	struct ethhdr *ethhdr = eth_hdr(skb);
 
 	if (!atomic_read(&bat_priv->multicast_mode))
-		return -EINVAL;
-
-	if (atomic_read(&bat_priv->mcast.num_disabled))
 		return -EINVAL;
 
 	switch (ntohs(ethhdr->h_proto)) {
@@ -1183,33 +1175,23 @@ static void batadv_mcast_tvlv_ogm_handler(struct batadv_priv *bat_priv,
 {
 	bool orig_mcast_enabled = !(flags & BATADV_TVLV_HANDLER_OGM_CIFNOTFND);
 	u8 mcast_flags = BATADV_NO_FLAGS;
-	bool orig_initialized;
 
 	if (orig_mcast_enabled && tvlv_value &&
 	    tvlv_value_len >= sizeof(mcast_flags))
 		mcast_flags = *(u8 *)tvlv_value;
 
-	spin_lock_bh(&orig->mcast_handler_lock);
-	orig_initialized = test_bit(BATADV_ORIG_CAPA_HAS_MCAST,
-				    &orig->capa_initialized);
+	if (!orig_mcast_enabled) {
+		mcast_flags |= BATADV_MCAST_WANT_ALL_IPV4;
+		mcast_flags |= BATADV_MCAST_WANT_ALL_IPV6;
+	}
 
-	/* If mcast support is turned on decrease the disabled mcast node
-	 * counter only if we had increased it for this node before. If this
-	 * is a completely new orig_node no need to decrease the counter.
-	 */
+	spin_lock_bh(&orig->mcast_handler_lock);
+
 	if (orig_mcast_enabled &&
 	    !test_bit(BATADV_ORIG_CAPA_HAS_MCAST, &orig->capabilities)) {
-		if (orig_initialized)
-			atomic_dec(&bat_priv->mcast.num_disabled);
 		set_bit(BATADV_ORIG_CAPA_HAS_MCAST, &orig->capabilities);
-	/* If mcast support is being switched off or if this is an initial
-	 * OGM without mcast support then increase the disabled mcast
-	 * node counter.
-	 */
 	} else if (!orig_mcast_enabled &&
-		   (test_bit(BATADV_ORIG_CAPA_HAS_MCAST, &orig->capabilities) ||
-		    !orig_initialized)) {
-		atomic_inc(&bat_priv->mcast.num_disabled);
+		   test_bit(BATADV_ORIG_CAPA_HAS_MCAST, &orig->capabilities)) {
 		clear_bit(BATADV_ORIG_CAPA_HAS_MCAST, &orig->capabilities);
 	}
 
@@ -1536,7 +1518,7 @@ out:
 
 	if (!ret && primary_if)
 		*primary_if = hard_iface;
-	else
+	else if (hard_iface)
 		batadv_hardif_put(hard_iface);
 
 	return ret;
@@ -1594,10 +1576,6 @@ void batadv_mcast_purge_orig(struct batadv_orig_node *orig)
 	struct batadv_priv *bat_priv = orig->bat_priv;
 
 	spin_lock_bh(&orig->mcast_handler_lock);
-
-	if (!test_bit(BATADV_ORIG_CAPA_HAS_MCAST, &orig->capabilities) &&
-	    test_bit(BATADV_ORIG_CAPA_HAS_MCAST, &orig->capa_initialized))
-		atomic_dec(&bat_priv->mcast.num_disabled);
 
 	batadv_mcast_want_unsnoop_update(bat_priv, orig, BATADV_NO_FLAGS);
 	batadv_mcast_want_ipv4_update(bat_priv, orig, BATADV_NO_FLAGS);

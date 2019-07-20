@@ -240,7 +240,7 @@ mwifiex_wmm_setup_queue_priorities(struct mwifiex_private *priv,
 	mwifiex_dbg(priv->adapter, INFO,
 		    "info: WMM Parameter IE: version=%d,\t"
 		    "qos_info Parameter Set Count=%d, Reserved=%#x\n",
-		    wmm_ie->vend_hdr.version, wmm_ie->qos_info_bitmap &
+		    wmm_ie->version, wmm_ie->qos_info_bitmap &
 		    IEEE80211_WMM_IE_AP_QOSINFO_PARAM_SET_CNT_MASK,
 		    wmm_ie->reserved);
 
@@ -599,7 +599,7 @@ mwifiex_clean_txrx(struct mwifiex_private *priv)
 	memcpy(tos_to_tid, ac_to_tid, sizeof(tos_to_tid));
 
 	if (priv->adapter->if_ops.clean_pcie_ring &&
-	    !priv->adapter->surprise_removed)
+	    !test_bit(MWIFIEX_SURPRISE_REMOVED, &priv->adapter->work_flags))
 		priv->adapter->if_ops.clean_pcie_ring(priv->adapter);
 	spin_unlock_irqrestore(&priv->wmm.ra_list_spinlock, flags);
 

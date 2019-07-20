@@ -304,7 +304,7 @@ static int get_secret(struct ceph_crypto_key *dst, const char *name) {
 	struct ceph_crypto_key *ckey;
 
 	ukey = request_key(&key_type_ceph, name, NULL);
-	if (!ukey || IS_ERR(ukey)) {
+	if (IS_ERR(ukey)) {
 		/* request_key errors don't map nicely to mount(2)
 		   errors; don't even try, but still printk */
 		key_err = PTR_ERR(ukey);
@@ -379,7 +379,7 @@ ceph_parse_options(char *options, const char *dev_name,
 
 	/* parse mount options */
 	while ((c = strsep(&options, ",")) != NULL) {
-		int token, intval, ret;
+		int token, intval;
 		if (!*c)
 			continue;
 		err = -EINVAL;
@@ -394,11 +394,10 @@ ceph_parse_options(char *options, const char *dev_name,
 			continue;
 		}
 		if (token < Opt_last_int) {
-			ret = match_int(&argstr[0], &intval);
-			if (ret < 0) {
-				pr_err("bad mount option arg (not int) "
-				       "at '%s'\n", c);
-				continue;
+			err = match_int(&argstr[0], &intval);
+			if (err < 0) {
+				pr_err("bad option arg (not int) at '%s'\n", c);
+				goto out;
 			}
 			dout("got int token %d val %d\n", token, intval);
 		} else if (token > Opt_last_int && token < Opt_last_string) {
@@ -730,7 +729,6 @@ int __ceph_open_session(struct ceph_client *client, unsigned long started)
 }
 EXPORT_SYMBOL(__ceph_open_session);
 
-
 int ceph_open_session(struct ceph_client *client)
 {
 	int ret;
@@ -746,6 +744,23 @@ int ceph_open_session(struct ceph_client *client)
 }
 EXPORT_SYMBOL(ceph_open_session);
 
+int ceph_wait_for_latest_osdmap(struct ceph_client *client,
+				unsigned long timeout)
+{
+	u64 newest_epoch;
+	int ret;
+
+	ret = ceph_monc_get_version(&client->monc, "osdmap", &newest_epoch);
+	if (ret)
+		return ret;
+
+	if (client->osdc.osdmap->epoch >= newest_epoch)
+		return 0;
+
+	ceph_osdc_maybe_request_map(&client->osdc);
+	return ceph_monc_wait_osdmap(&client->monc, newest_epoch, timeout);
+}
+EXPORT_SYMBOL(ceph_wait_for_latest_osdmap);
 
 static int __init init_ceph_lib(void)
 {

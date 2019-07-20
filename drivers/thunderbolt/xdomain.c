@@ -13,6 +13,7 @@
 #include <linux/device.h>
 #include <linux/kmod.h>
 #include <linux/module.h>
+#include <linux/pm_runtime.h>
 #include <linux/utsname.h>
 #include <linux/uuid.h>
 #include <linux/workqueue.h>
@@ -742,6 +743,7 @@ static void enumerate_services(struct tb_xdomain *xd)
 	struct tb_service *svc;
 	struct tb_property *p;
 	struct device *dev;
+	int id;
 
 	/*
 	 * First remove all services that are not available anymore in
@@ -770,7 +772,12 @@ static void enumerate_services(struct tb_xdomain *xd)
 			break;
 		}
 
-		svc->id = ida_simple_get(&xd->service_ids, 0, 0, GFP_KERNEL);
+		id = ida_simple_get(&xd->service_ids, 0, 0, GFP_KERNEL);
+		if (id < 0) {
+			kfree(svc);
+			break;
+		}
+		svc->id = id;
 		svc->dev.bus = &tb_bus_type;
 		svc->dev.type = &tb_service_type;
 		svc->dev.parent = &xd->dev;
@@ -1129,6 +1136,14 @@ struct tb_xdomain *tb_xdomain_alloc(struct tb *tb, struct device *parent,
 	xd->dev.groups = xdomain_attr_groups;
 	dev_set_name(&xd->dev, "%u-%llx", tb->index, route);
 
+	/*
+	 * This keeps the DMA powered on as long as we have active
+	 * connection to another host.
+	 */
+	pm_runtime_set_active(&xd->dev);
+	pm_runtime_get_noresume(&xd->dev);
+	pm_runtime_enable(&xd->dev);
+
 	return xd;
 
 err_free_local_uuid:
@@ -1173,6 +1188,15 @@ void tb_xdomain_remove(struct tb_xdomain *xd)
 	stop_handshake(xd);
 
 	device_for_each_child_reverse(&xd->dev, xd, unregister_service);
+
+	/*
+	 * Undo runtime PM here explicitly because it is possible that
+	 * the XDomain was never added to the bus and thus device_del()
+	 * is not called for it (device_del() would handle this otherwise).
+	 */
+	pm_runtime_disable(&xd->dev);
+	pm_runtime_put_noidle(&xd->dev);
+	pm_runtime_set_suspended(&xd->dev);
 
 	if (!device_is_registered(&xd->dev))
 		put_device(&xd->dev);

@@ -115,9 +115,9 @@ struct coda_params {
 	u8			h264_inter_qp;
 	u8			h264_min_qp;
 	u8			h264_max_qp;
-	u8			h264_deblk_enabled;
-	u8			h264_deblk_alpha;
-	u8			h264_deblk_beta;
+	u8			h264_disable_deblocking_filter_idc;
+	s8			h264_slice_alpha_c0_offset_div2;
+	s8			h264_slice_beta_offset_div2;
 	u8			h264_profile_idc;
 	u8			h264_level_idc;
 	u8			mpeg4_intra_qp;
@@ -214,6 +214,8 @@ struct coda_ctx {
 	enum v4l2_quantization		quantization;
 	struct coda_params		params;
 	struct v4l2_ctrl_handler	ctrls;
+	struct v4l2_ctrl		*h264_profile_ctrl;
+	struct v4l2_ctrl		*h264_level_ctrl;
 	struct v4l2_fh			fh;
 	int				gopcounter;
 	int				runcounter;
@@ -303,6 +305,8 @@ int coda_h264_padding(int size, char *p);
 int coda_h264_profile(int profile_idc);
 int coda_h264_level(int level_idc);
 int coda_sps_parse_profile(struct coda_ctx *ctx, struct vb2_buffer *vb);
+int coda_h264_sps_fixup(struct coda_ctx *ctx, int width, int height, char *buf,
+			int *size, int max_size);
 
 bool coda_jpeg_check_buffer(struct coda_ctx *ctx, struct vb2_buffer *vb);
 int coda_jpeg_write_tables(struct coda_ctx *ctx);

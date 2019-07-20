@@ -524,10 +524,7 @@ static void resync_tnc(struct timer_list *t)
 
 
 	/* Start resync timer again -- the TNC might be still absent */
-
-	del_timer(&sp->resync_t);
-	sp->resync_t.expires	= jiffies + SIXP_RESYNC_TIMEOUT;
-	add_timer(&sp->resync_t);
+	mod_timer(&sp->resync_t, jiffies + SIXP_RESYNC_TIMEOUT);
 }
 
 static inline int tnc_init(struct sixpack *sp)
@@ -538,9 +535,7 @@ static inline int tnc_init(struct sixpack *sp)
 
 	sp->tty->ops->write(sp->tty, &inbyte, 1);
 
-	del_timer(&sp->resync_t);
-	sp->resync_t.expires = jiffies + SIXP_RESYNC_TIMEOUT;
-	add_timer(&sp->resync_t);
+	mod_timer(&sp->resync_t, jiffies + SIXP_RESYNC_TIMEOUT);
 
 	return 0;
 }
@@ -878,10 +873,8 @@ static void decode_data(struct sixpack *sp, unsigned char inbyte)
 
 static void decode_prio_command(struct sixpack *sp, unsigned char cmd)
 {
-	unsigned char channel;
 	int actual;
 
-	channel = cmd & SIXP_CHN_MASK;
 	if ((cmd & SIXP_PRIO_DATA_MASK) != 0) {     /* idle ? */
 
 	/* RX and DCD flags can only be set in the same prio command,
@@ -920,11 +913,8 @@ static void decode_prio_command(struct sixpack *sp, unsigned char cmd)
         /* if the state byte has been received, the TNC is present,
            so the resync timer can be reset. */
 
-	if (sp->tnc_state == TNC_IN_SYNC) {
-		del_timer(&sp->resync_t);
-		sp->resync_t.expires	= jiffies + SIXP_INIT_RESYNC_TIMEOUT;
-		add_timer(&sp->resync_t);
-	}
+	if (sp->tnc_state == TNC_IN_SYNC)
+		mod_timer(&sp->resync_t, jiffies + SIXP_INIT_RESYNC_TIMEOUT);
 
 	sp->status1 = cmd & SIXP_PRIO_DATA_MASK;
 }
@@ -933,10 +923,9 @@ static void decode_prio_command(struct sixpack *sp, unsigned char cmd)
 
 static void decode_std_command(struct sixpack *sp, unsigned char cmd)
 {
-	unsigned char checksum = 0, rest = 0, channel;
+	unsigned char checksum = 0, rest = 0;
 	short i;
 
-	channel = cmd & SIXP_CHN_MASK;
 	switch (cmd & SIXP_CMD_MASK) {     /* normal command */
 	case SIXP_SEOF:
 		if ((sp->rx_count == 0) && (sp->rx_count_cooked == 0)) {

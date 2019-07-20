@@ -67,16 +67,6 @@ void __init wii_memory_fixups(void)
 {
 	struct memblock_region *p = memblock.memory.regions;
 
-	/*
-	 * This is part of a workaround to allow the use of two
-	 * discontinuous RAM ranges on the Wii, even if this is
-	 * currently unsupported on 32-bit PowerPC Linux.
-	 *
-	 * We coalesce the two memory ranges of the Wii into a
-	 * single range, then create a reservation for the "hole"
-	 * between both ranges.
-	 */
-
 	BUG_ON(memblock.memory.cnt != 2);
 	BUG_ON(!page_aligned(p[0].base) || !page_aligned(p[1].base));
 
@@ -93,6 +83,10 @@ unsigned long __init wii_mmu_mapin_mem2(unsigned long top)
 	/* MEM2 64MB@0x10000000 */
 	delta = wii_hole_start + wii_hole_size;
 	size = top - delta;
+
+	if (__map_without_bats)
+		return delta;
+
 	for (bl = 128<<10; bl < max_size; bl <<= 1) {
 		if (bl * 2 > size)
 			break;

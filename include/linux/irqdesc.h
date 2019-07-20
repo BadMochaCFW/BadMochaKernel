@@ -65,6 +65,7 @@ struct irq_desc {
 	unsigned int		core_internal_state__do_not_mess_with_it;
 	unsigned int		depth;		/* nested irq disables */
 	unsigned int		wake_depth;	/* nested wake enables */
+	unsigned int		tot_count;
 	unsigned int		irq_count;	/* For detecting broken IRQs */
 	unsigned long		last_unhandled;	/* Aging timer for unhandled count */
 	unsigned int		irqs_unhandled;
@@ -143,11 +144,6 @@ static inline void *irq_desc_get_chip_data(struct irq_desc *desc)
 static inline void *irq_desc_get_handler_data(struct irq_desc *desc)
 {
 	return desc->irq_common_data.handler_data;
-}
-
-static inline struct msi_desc *irq_desc_get_msi_desc(struct irq_desc *desc)
-{
-	return desc->irq_common_data.msi_desc;
 }
 
 /*

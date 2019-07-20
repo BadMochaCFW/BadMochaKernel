@@ -47,9 +47,7 @@ int build_id__mark_dso_hit(struct perf_tool *tool __maybe_unused,
 		return -1;
 	}
 
-	thread__find_addr_map(thread, sample->cpumode, MAP__FUNCTION, sample->ip, &al);
-
-	if (al.map != NULL)
+	if (thread__find_map(thread, sample->cpumode, sample->ip, &al))
 		al.map->dso->hit = 1;
 
 	thread__put(thread);
@@ -185,6 +183,7 @@ char *build_id_cache__linkname(const char *sbuild_id, char *bf, size_t size)
 	return bf;
 }
 
+/* The caller is responsible to free the returned buffer. */
 char *build_id_cache__origname(const char *sbuild_id)
 {
 	char *linkname;

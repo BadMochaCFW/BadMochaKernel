@@ -155,30 +155,29 @@ static int wl12xx_sdio_power_on(struct wl12xx_sdio_glue *glue)
 	struct mmc_card *card = func->card;
 
 	ret = pm_runtime_get_sync(&card->dev);
-	if (ret) {
-		/*
-		 * Runtime PM might be temporarily disabled, or the device
-		 * might have a positive reference counter. Make sure it is
-		 * really powered on.
-		 */
-		ret = mmc_power_restore_host(card->host);
-		if (ret < 0) {
-			pm_runtime_put_sync(&card->dev);
-			goto out;
-		}
+	if (ret < 0) {
+		pm_runtime_put_noidle(&card->dev);
+		dev_err(glue->dev, "%s: failed to get_sync(%d)\n",
+			__func__, ret);
+
+		return ret;
 	}
 
 	sdio_claim_host(func);
+	/*
+	 * To guarantee that the SDIO card is power cycled, as required to make
+	 * the FW programming to succeed, let's do a brute force HW reset.
+	 */
+	mmc_hw_reset(card->host);
+
 	sdio_enable_func(func);
 	sdio_release_host(func);
 
-out:
-	return ret;
+	return 0;
 }
 
 static int wl12xx_sdio_power_off(struct wl12xx_sdio_glue *glue)
 {
-	int ret;
 	struct sdio_func *func = dev_to_sdio_func(glue->dev);
 	struct mmc_card *card = func->card;
 
@@ -186,16 +185,9 @@ static int wl12xx_sdio_power_off(struct wl12xx_sdio_glue *glue)
 	sdio_disable_func(func);
 	sdio_release_host(func);
 
-	/* Power off the card manually in case it wasn't powered off above */
-	ret = mmc_power_save_host(card->host);
-	if (ret < 0)
-		goto out;
-
 	/* Let runtime PM know the card is powered off */
-	pm_runtime_put_sync(&card->dev);
-
-out:
-	return ret;
+	pm_runtime_put(&card->dev);
+	return 0;
 }
 
 static int wl12xx_sdio_set_power(struct device *child, bool enable)
@@ -405,6 +397,11 @@ static int wl1271_suspend(struct device *dev)
 	struct wl1271 *wl = platform_get_drvdata(glue->core);
 	mmc_pm_flag_t sdio_flags;
 	int ret = 0;
+
+	if (!wl) {
+		dev_err(dev, "no wilink module was probed\n");
+		goto out;
+	}
 
 	dev_dbg(dev, "wl1271 suspend. wow_enabled: %d\n",
 		wl->wow_enabled);

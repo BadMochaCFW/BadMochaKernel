@@ -24,6 +24,7 @@
 #include "thread.h"
 #include "thread-stack.h"
 #include "stat.h"
+#include "arch/common.h"
 
 static int perf_session__deliver_event(struct perf_session *session,
 				       union perf_event *event,
@@ -149,6 +150,9 @@ struct perf_session *perf_session__new(struct perf_data *data,
 	} else  {
 		session->machines.host.env = &perf_env;
 	}
+
+	session->machines.host.single_address_space =
+		perf_env__single_address_space(session->machines.host.env);
 
 	if (!data || perf_data__is_write(data)) {
 		/*
@@ -1094,7 +1098,7 @@ static void dump_sample(struct perf_evsel *evsel, union perf_event *event,
 
 	sample_type = evsel->attr.sample_type;
 
-	if (sample_type & PERF_SAMPLE_CALLCHAIN)
+	if (evsel__has_callchain(evsel))
 		callchain__printf(evsel, sample);
 
 	if ((sample_type & PERF_SAMPLE_BRANCH_STACK) && !perf_evsel__has_branch_callstack(evsel))
@@ -1973,12 +1977,11 @@ bool perf_session__has_traces(struct perf_session *session, const char *msg)
 	return false;
 }
 
-int maps__set_kallsyms_ref_reloc_sym(struct map **maps,
-				     const char *symbol_name, u64 addr)
+int map__set_kallsyms_ref_reloc_sym(struct map *map, const char *symbol_name, u64 addr)
 {
 	char *bracket;
-	int i;
 	struct ref_reloc_sym *ref;
+	struct kmap *kmap;
 
 	ref = zalloc(sizeof(struct ref_reloc_sym));
 	if (ref == NULL)
@@ -1996,13 +1999,9 @@ int maps__set_kallsyms_ref_reloc_sym(struct map **maps,
 
 	ref->addr = addr;
 
-	for (i = 0; i < MAP__NR_TYPES; ++i) {
-		struct kmap *kmap = map__kmap(maps[i]);
-
-		if (!kmap)
-			continue;
+	kmap = map__kmap(map);
+	if (kmap)
 		kmap->ref_reloc_sym = ref;
-	}
 
 	return 0;
 }

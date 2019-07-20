@@ -14,6 +14,8 @@
 #include <linux/poll.h>
 #include <linux/wait.h>
 
+#include <linux/nospec.h>
+
 MODULE_DESCRIPTION("Microsemi Switchtec(tm) PCIe Management Driver");
 MODULE_VERSION("0.1");
 MODULE_LICENSE("GPL");
@@ -641,7 +643,7 @@ static int ioctl_event_summary(struct switchtec_dev *stdev,
 
 	for (i = 0; i < SWITCHTEC_MAX_PFF_CSR; i++) {
 		reg = ioread16(&stdev->mmio_pff_csr[i].vendor_id);
-		if (reg != MICROSEMI_VENDOR_ID)
+		if (reg != PCI_VENDOR_ID_MICROSEMI)
 			break;
 
 		reg = ioread32(&stdev->mmio_pff_csr[i].pff_event_summary);
@@ -798,6 +800,7 @@ static int ioctl_event_ctl(struct switchtec_dev *stdev,
 {
 	int ret;
 	int nr_idxs;
+	unsigned int event_flags;
 	struct switchtec_ioctl_event_ctl ctl;
 
 	if (copy_from_user(&ctl, uctl, sizeof(ctl)))
@@ -819,7 +822,9 @@ static int ioctl_event_ctl(struct switchtec_dev *stdev,
 		else
 			return -EINVAL;
 
+		event_flags = ctl.flags;
 		for (ctl.index = 0; ctl.index < nr_idxs; ctl.index++) {
+			ctl.flags = event_flags;
 			ret = event_ctl(stdev, &ctl);
 			if (ret < 0)
 				return ret;
@@ -909,6 +914,8 @@ static int ioctl_port_to_pff(struct switchtec_dev *stdev,
 	default:
 		if (p.port > ARRAY_SIZE(pcfg->dsp_pff_inst_id))
 			return -EINVAL;
+		p.port = array_index_nospec(p.port,
+					ARRAY_SIZE(pcfg->dsp_pff_inst_id) + 1);
 		p.pff = ioread32(&pcfg->dsp_pff_inst_id[p.port - 1]);
 		break;
 	}
@@ -1109,7 +1116,8 @@ static int mask_event(struct switchtec_dev *stdev, int eid, int idx)
 	if (!(hdr & SWITCHTEC_EVENT_OCCURRED && hdr & SWITCHTEC_EVENT_EN_IRQ))
 		return 0;
 
-	if (eid == SWITCHTEC_IOCTL_EVENT_LINK_STATE)
+	if (eid == SWITCHTEC_IOCTL_EVENT_LINK_STATE ||
+	    eid == SWITCHTEC_IOCTL_EVENT_MRPC_COMP)
 		return 0;
 
 	dev_dbg(&stdev->dev, "%s: %d %d %x\n", __func__, eid, idx, hdr);
@@ -1203,7 +1211,7 @@ static void init_pff(struct switchtec_dev *stdev)
 
 	for (i = 0; i < SWITCHTEC_MAX_PFF_CSR; i++) {
 		reg = ioread16(&stdev->mmio_pff_csr[i].vendor_id);
-		if (reg != MICROSEMI_VENDOR_ID)
+		if (reg != PCI_VENDOR_ID_MICROSEMI)
 			break;
 	}
 
@@ -1267,7 +1275,7 @@ static int switchtec_pci_probe(struct pci_dev *pdev,
 	struct switchtec_dev *stdev;
 	int rc;
 
-	if (pdev->class == MICROSEMI_NTB_CLASSCODE)
+	if (pdev->class == (PCI_CLASS_BRIDGE_OTHER << 8))
 		request_module_nowait("ntb_hw_switchtec");
 
 	stdev = stdev_create(pdev);
@@ -1321,19 +1329,19 @@ static void switchtec_pci_remove(struct pci_dev *pdev)
 
 #define SWITCHTEC_PCI_DEVICE(device_id) \
 	{ \
-		.vendor     = MICROSEMI_VENDOR_ID, \
+		.vendor     = PCI_VENDOR_ID_MICROSEMI, \
 		.device     = device_id, \
 		.subvendor  = PCI_ANY_ID, \
 		.subdevice  = PCI_ANY_ID, \
-		.class      = MICROSEMI_MGMT_CLASSCODE, \
+		.class      = (PCI_CLASS_MEMORY_OTHER << 8), \
 		.class_mask = 0xFFFFFFFF, \
 	}, \
 	{ \
-		.vendor     = MICROSEMI_VENDOR_ID, \
+		.vendor     = PCI_VENDOR_ID_MICROSEMI, \
 		.device     = device_id, \
 		.subvendor  = PCI_ANY_ID, \
 		.subdevice  = PCI_ANY_ID, \
-		.class      = MICROSEMI_NTB_CLASSCODE, \
+		.class      = (PCI_CLASS_BRIDGE_OTHER << 8), \
 		.class_mask = 0xFFFFFFFF, \
 	}
 

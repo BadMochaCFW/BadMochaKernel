@@ -119,7 +119,7 @@ static void cec_pin_update(struct cec_pin *pin, bool v, bool force)
 
 		if (pin->work_pin_events_dropped) {
 			pin->work_pin_events_dropped = false;
-			v |= CEC_PIN_EVENT_FL_DROPPED;
+			ev |= CEC_PIN_EVENT_FL_DROPPED;
 		}
 		pin->work_pin_events[pin->work_pin_events_wr] = ev;
 		pin->work_pin_ts[pin->work_pin_events_wr] = ktime_get();
@@ -601,8 +601,9 @@ static void cec_pin_tx_states(struct cec_pin *pin, ktime_t ts)
 			break;
 		/* Was the message ACKed? */
 		ack = cec_msg_is_broadcast(&pin->tx_msg) ? v : !v;
-		if (!ack && !pin->tx_ignore_nack_until_eom &&
-		    pin->tx_bit / 10 < pin->tx_msg.len && !pin->tx_post_eom) {
+		if (!ack && (!pin->tx_ignore_nack_until_eom ||
+		    pin->tx_bit / 10 == pin->tx_msg.len - 1) &&
+		    !pin->tx_post_eom) {
 			/*
 			 * Note: the CEC spec is ambiguous regarding
 			 * what action to take when a NACK appears

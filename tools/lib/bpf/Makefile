@@ -66,10 +66,10 @@ ifndef VERBOSE
 endif
 
 FEATURE_USER = .libbpf
-FEATURE_TESTS = libelf libelf-getphdrnum libelf-mmap bpf
+FEATURE_TESTS = libelf libelf-mmap bpf reallocarray
 FEATURE_DISPLAY = libelf bpf
 
-INCLUDES = -I. -I$(srctree)/tools/include -I$(srctree)/tools/arch/$(ARCH)/include/uapi -I$(srctree)/tools/include/uapi
+INCLUDES = -I. -I$(srctree)/tools/include -I$(srctree)/tools/arch/$(ARCH)/include/uapi -I$(srctree)/tools/include/uapi -I$(srctree)/tools/perf
 FEATURE_CHECK_CFLAGS-bpf = $(INCLUDES)
 
 check_feat := 1
@@ -116,8 +116,8 @@ ifeq ($(feature-libelf-mmap), 1)
   override CFLAGS += -DHAVE_LIBELF_MMAP_SUPPORT
 endif
 
-ifeq ($(feature-libelf-getphdrnum), 1)
-  override CFLAGS += -DHAVE_ELF_GETPHDRNUM_SUPPORT
+ifeq ($(feature-reallocarray), 0)
+  override CFLAGS += -DCOMPAT_NEED_REALLOCARRAY
 endif
 
 # Append required CFLAGS
@@ -149,7 +149,8 @@ CMD_TARGETS = $(LIB_FILE)
 
 TARGETS = $(CMD_TARGETS)
 
-all: fixdep all_cmd
+all: fixdep
+	$(Q)$(MAKE) all_cmd
 
 all_cmd: $(CMD_TARGETS)
 
@@ -189,6 +190,7 @@ install_headers:
 	$(call QUIET_INSTALL, headers) \
 		$(call do_install,bpf.h,$(prefix)/include/bpf,644); \
 		$(call do_install,libbpf.h,$(prefix)/include/bpf,644);
+		$(call do_install,btf.h,$(prefix)/include/bpf,644);
 
 install: install_lib
 

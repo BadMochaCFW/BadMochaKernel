@@ -43,7 +43,8 @@ static inline bool
 ingenic_cgu_gate_get(struct ingenic_cgu *cgu,
 		     const struct ingenic_cgu_gate_info *info)
 {
-	return readl(cgu->base + info->reg) & BIT(info->bit);
+	return !!(readl(cgu->base + info->reg) & BIT(info->bit))
+		^ info->clear_to_gate;
 }
 
 /**
@@ -62,7 +63,7 @@ ingenic_cgu_gate_set(struct ingenic_cgu *cgu,
 {
 	u32 clkgr = readl(cgu->base + info->reg);
 
-	if (val)
+	if (val ^ info->clear_to_gate)
 		clkgr |= BIT(info->bit);
 	else
 		clkgr &= ~BIT(info->bit);
@@ -425,16 +426,16 @@ ingenic_clk_round_rate(struct clk_hw *hw, unsigned long req_rate,
 	struct ingenic_clk *ingenic_clk = to_ingenic_clk(hw);
 	struct ingenic_cgu *cgu = ingenic_clk->cgu;
 	const struct ingenic_cgu_clk_info *clk_info;
-	long rate = *parent_rate;
+	unsigned int div = 1;
 
 	clk_info = &cgu->clock_info[ingenic_clk->idx];
 
 	if (clk_info->type & CGU_CLK_DIV)
-		rate /= ingenic_clk_calc_div(clk_info, *parent_rate, req_rate);
+		div = ingenic_clk_calc_div(clk_info, *parent_rate, req_rate);
 	else if (clk_info->type & CGU_CLK_FIXDIV)
-		rate /= clk_info->fixdiv.div;
+		div = clk_info->fixdiv.div;
 
-	return rate;
+	return DIV_ROUND_UP(*parent_rate, div);
 }
 
 static int
@@ -454,7 +455,7 @@ ingenic_clk_set_rate(struct clk_hw *hw, unsigned long req_rate,
 
 	if (clk_info->type & CGU_CLK_DIV) {
 		div = ingenic_clk_calc_div(clk_info, parent_rate, req_rate);
-		rate = parent_rate / div;
+		rate = DIV_ROUND_UP(parent_rate, div);
 
 		if (rate != req_rate)
 			return -EINVAL;
@@ -511,6 +512,9 @@ static int ingenic_clk_enable(struct clk_hw *hw)
 		spin_lock_irqsave(&cgu->lock, flags);
 		ingenic_cgu_gate_set(cgu, &clk_info->gate, false);
 		spin_unlock_irqrestore(&cgu->lock, flags);
+
+		if (clk_info->gate.delay_us)
+			udelay(clk_info->gate.delay_us);
 	}
 
 	return 0;

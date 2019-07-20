@@ -128,7 +128,7 @@ void thread__put(struct thread *thread)
 	}
 }
 
-struct namespaces *thread__namespaces(const struct thread *thread)
+static struct namespaces *__thread__namespaces(const struct thread *thread)
 {
 	if (list_empty(&thread->namespaces_list))
 		return NULL;
@@ -136,10 +136,21 @@ struct namespaces *thread__namespaces(const struct thread *thread)
 	return list_first_entry(&thread->namespaces_list, struct namespaces, list);
 }
 
+struct namespaces *thread__namespaces(const struct thread *thread)
+{
+	struct namespaces *ns;
+
+	down_read((struct rw_semaphore *)&thread->namespaces_lock);
+	ns = __thread__namespaces(thread);
+	up_read((struct rw_semaphore *)&thread->namespaces_lock);
+
+	return ns;
+}
+
 static int __thread__set_namespaces(struct thread *thread, u64 timestamp,
 				    struct namespaces_event *event)
 {
-	struct namespaces *new, *curr = thread__namespaces(thread);
+	struct namespaces *new, *curr = __thread__namespaces(thread);
 
 	new = namespaces__new(event);
 	if (!new)
@@ -302,22 +313,19 @@ int thread__insert_map(struct thread *thread, struct map *map)
 static int __thread__prepare_access(struct thread *thread)
 {
 	bool initialized = false;
-	int i, err = 0;
+	int err = 0;
+	struct maps *maps = &thread->mg->maps;
+	struct map *map;
 
-	for (i = 0; i < MAP__NR_TYPES; ++i) {
-		struct maps *maps = &thread->mg->maps[i];
-		struct map *map;
+	down_read(&maps->lock);
 
-		down_read(&maps->lock);
-
-		for (map = maps__first(maps); map; map = map__next(map)) {
-			err = unwind__prepare_access(thread, map, &initialized);
-			if (err || initialized)
-				break;
-		}
-
-		up_read(&maps->lock);
+	for (map = maps__first(maps); map; map = map__next(map)) {
+		err = unwind__prepare_access(thread, map, &initialized);
+		if (err || initialized)
+			break;
 	}
+
+	up_read(&maps->lock);
 
 	return err;
 }
@@ -335,8 +343,6 @@ static int thread__prepare_access(struct thread *thread)
 static int thread__clone_map_groups(struct thread *thread,
 				    struct thread *parent)
 {
-	int i;
-
 	/* This is new thread, we share map groups for process. */
 	if (thread->pid_ == parent->pid_)
 		return thread__prepare_access(thread);
@@ -348,9 +354,8 @@ static int thread__clone_map_groups(struct thread *thread,
 	}
 
 	/* But this one is new process, copy maps. */
-	for (i = 0; i < MAP__NR_TYPES; ++i)
-		if (map_groups__clone(thread, parent->mg, i) < 0)
-			return -ENOMEM;
+	if (map_groups__clone(thread, parent->mg) < 0)
+		return -ENOMEM;
 
 	return 0;
 }
@@ -371,8 +376,7 @@ int thread__fork(struct thread *thread, struct thread *parent, u64 timestamp)
 	return thread__clone_map_groups(thread, parent);
 }
 
-void thread__find_cpumode_addr_location(struct thread *thread,
-					enum map_type type, u64 addr,
+void thread__find_cpumode_addr_location(struct thread *thread, u64 addr,
 					struct addr_location *al)
 {
 	size_t i;
@@ -384,7 +388,7 @@ void thread__find_cpumode_addr_location(struct thread *thread,
 	};
 
 	for (i = 0; i < ARRAY_SIZE(cpumodes); i++) {
-		thread__find_addr_location(thread, cpumodes[i], type, addr, al);
+		thread__find_symbol(thread, cpumodes[i], addr, al);
 		if (al->map)
 			break;
 	}

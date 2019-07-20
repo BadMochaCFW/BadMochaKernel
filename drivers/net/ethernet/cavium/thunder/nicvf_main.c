@@ -32,6 +32,13 @@
 #define DRV_NAME	"nicvf"
 #define DRV_VERSION	"1.0"
 
+/* NOTE: Packets bigger than 1530 are split across multiple pages and XDP needs
+ * the buffer to be contiguous. Allow XDP to be set up only if we don't exceed
+ * this value, keeping headroom for the 14 byte Ethernet header and two
+ * VLAN tags (for QinQ)
+ */
+#define MAX_XDP_MTU	(1530 - ETH_HLEN - VLAN_HLEN * 2)
+
 /* Supported devices */
 static const struct pci_device_id nicvf_id_table[] = {
 	{ PCI_DEVICE_SUB(PCI_VENDOR_ID_CAVIUM,
@@ -170,6 +177,17 @@ static int nicvf_check_pf_ready(struct nicvf *nic)
 	}
 
 	return 1;
+}
+
+static void nicvf_send_cfg_done(struct nicvf *nic)
+{
+	union nic_mbx mbx = {};
+
+	mbx.msg.msg = NIC_MBOX_MSG_CFG_DONE;
+	if (nicvf_send_msg_to_pf(nic, &mbx)) {
+		netdev_err(nic->netdev,
+			   "PF didn't respond to CFG DONE msg\n");
+	}
 }
 
 static void nicvf_read_bgx_stats(struct nicvf *nic, struct bgx_stats_msg *bgx)
@@ -538,9 +556,9 @@ static inline bool nicvf_xdp_rx(struct nicvf *nic, struct bpf_prog *prog,
 	action = bpf_prog_run_xdp(prog, &xdp);
 	rcu_read_unlock();
 
+	len = xdp.data_end - xdp.data;
 	/* Check if XDP program has changed headers */
 	if (orig_data != xdp.data) {
-		len = xdp.data_end - xdp.data;
 		offset = orig_data - xdp.data;
 		dma_addr -= offset;
 	}
@@ -1416,7 +1434,6 @@ int nicvf_open(struct net_device *netdev)
 	struct nicvf *nic = netdev_priv(netdev);
 	struct queue_set *qs = nic->qs;
 	struct nicvf_cq_poll *cq_poll = NULL;
-	union nic_mbx mbx = {};
 
 	netif_carrier_off(netdev);
 
@@ -1512,8 +1529,7 @@ int nicvf_open(struct net_device *netdev)
 		nicvf_enable_intr(nic, NICVF_INTR_RBDR, qidx);
 
 	/* Send VF config done msg to PF */
-	mbx.msg.msg = NIC_MBOX_MSG_CFG_DONE;
-	nicvf_write_to_mbx(nic, &mbx);
+	nicvf_send_cfg_done(nic);
 
 	return 0;
 cleanup:
@@ -1537,6 +1553,15 @@ static int nicvf_change_mtu(struct net_device *netdev, int new_mtu)
 {
 	struct nicvf *nic = netdev_priv(netdev);
 	int orig_mtu = netdev->mtu;
+
+	/* For now just support only the usual MTU sized frames,
+	 * plus some headroom for VLAN, QinQ.
+	 */
+	if (nic->xdp_prog && new_mtu > MAX_XDP_MTU) {
+		netdev_warn(netdev, "Jumbo frames not yet supported with XDP, current MTU %d.\n",
+			    netdev->mtu);
+		return -EINVAL;
+	}
 
 	netdev->mtu = new_mtu;
 
@@ -1784,9 +1809,12 @@ static int nicvf_xdp_setup(struct nicvf *nic, struct bpf_prog *prog)
 	bool if_up = netif_running(nic->netdev);
 	struct bpf_prog *old_prog;
 	bool bpf_attached = false;
+	int ret = 0;
 
-	/* For now just support only the usual MTU sized frames */
-	if (prog && (dev->mtu > 1500)) {
+	/* For now just support only the usual MTU sized frames,
+	 * plus some headroom for VLAN, QinQ.
+	 */
+	if (prog && dev->mtu > MAX_XDP_MTU) {
 		netdev_warn(dev, "Jumbo frames not yet supported with XDP, current MTU %d.\n",
 			    dev->mtu);
 		return -EOPNOTSUPP;
@@ -1817,8 +1845,12 @@ static int nicvf_xdp_setup(struct nicvf *nic, struct bpf_prog *prog)
 	if (nic->xdp_prog) {
 		/* Attach BPF program */
 		nic->xdp_prog = bpf_prog_add(nic->xdp_prog, nic->rx_queues - 1);
-		if (!IS_ERR(nic->xdp_prog))
+		if (!IS_ERR(nic->xdp_prog)) {
 			bpf_attached = true;
+		} else {
+			ret = PTR_ERR(nic->xdp_prog);
+			nic->xdp_prog = NULL;
+		}
 	}
 
 	/* Calculate Tx queues needed for XDP and network stack */
@@ -1830,7 +1862,7 @@ static int nicvf_xdp_setup(struct nicvf *nic, struct bpf_prog *prog)
 		netif_trans_update(nic->netdev);
 	}
 
-	return 0;
+	return ret;
 }
 
 static int nicvf_xdp(struct net_device *netdev, struct netdev_bpf *xdp)
@@ -1848,7 +1880,6 @@ static int nicvf_xdp(struct net_device *netdev, struct netdev_bpf *xdp)
 	case XDP_SETUP_PROG:
 		return nicvf_xdp_setup(nic, xdp->prog);
 	case XDP_QUERY_PROG:
-		xdp->prog_attached = !!nic->xdp_prog;
 		xdp->prog_id = nic->xdp_prog ? nic->xdp_prog->aux->id : 0;
 		return 0;
 	default:
@@ -1923,16 +1954,11 @@ static int nicvf_ioctl(struct net_device *netdev, struct ifreq *req, int cmd)
 	}
 }
 
-static void nicvf_set_rx_mode_task(struct work_struct *work_arg)
+static void __nicvf_set_rx_mode_task(u8 mode, struct xcast_addr_list *mc_addrs,
+				     struct nicvf *nic)
 {
-	struct nicvf_work *vf_work = container_of(work_arg, struct nicvf_work,
-						  work.work);
-	struct nicvf *nic = container_of(vf_work, struct nicvf, rx_mode_work);
 	union nic_mbx mbx = {};
 	int idx;
-
-	if (!vf_work)
-		return;
 
 	/* From the inside of VM code flow we have only 128 bits memory
 	 * available to send message to host's PF, so send all mc addrs
@@ -1942,33 +1968,60 @@ static void nicvf_set_rx_mode_task(struct work_struct *work_arg)
 
 	/* flush DMAC filters and reset RX mode */
 	mbx.xcast.msg = NIC_MBOX_MSG_RESET_XCAST;
-	nicvf_send_msg_to_pf(nic, &mbx);
+	if (nicvf_send_msg_to_pf(nic, &mbx) < 0)
+		goto free_mc;
 
-	if (vf_work->mode & BGX_XCAST_MCAST_FILTER) {
+	if (mode & BGX_XCAST_MCAST_FILTER) {
 		/* once enabling filtering, we need to signal to PF to add
 		 * its' own LMAC to the filter to accept packets for it.
 		 */
 		mbx.xcast.msg = NIC_MBOX_MSG_ADD_MCAST;
 		mbx.xcast.data.mac = 0;
-		nicvf_send_msg_to_pf(nic, &mbx);
+		if (nicvf_send_msg_to_pf(nic, &mbx) < 0)
+			goto free_mc;
 	}
 
 	/* check if we have any specific MACs to be added to PF DMAC filter */
-	if (vf_work->mc) {
+	if (mc_addrs) {
 		/* now go through kernel list of MACs and add them one by one */
-		for (idx = 0; idx < vf_work->mc->count; idx++) {
+		for (idx = 0; idx < mc_addrs->count; idx++) {
 			mbx.xcast.msg = NIC_MBOX_MSG_ADD_MCAST;
-			mbx.xcast.data.mac = vf_work->mc->mc[idx];
-			nicvf_send_msg_to_pf(nic, &mbx);
+			mbx.xcast.data.mac = mc_addrs->mc[idx];
+			if (nicvf_send_msg_to_pf(nic, &mbx) < 0)
+				goto free_mc;
 		}
-		kfree(vf_work->mc);
 	}
 
 	/* and finally set rx mode for PF accordingly */
 	mbx.xcast.msg = NIC_MBOX_MSG_SET_XCAST;
-	mbx.xcast.data.mode = vf_work->mode;
+	mbx.xcast.data.mode = mode;
 
 	nicvf_send_msg_to_pf(nic, &mbx);
+free_mc:
+	kfree(mc_addrs);
+}
+
+static void nicvf_set_rx_mode_task(struct work_struct *work_arg)
+{
+	struct nicvf_work *vf_work = container_of(work_arg, struct nicvf_work,
+						  work.work);
+	struct nicvf *nic = container_of(vf_work, struct nicvf, rx_mode_work);
+	u8 mode;
+	struct xcast_addr_list *mc;
+
+	if (!vf_work)
+		return;
+
+	/* Save message data locally to prevent them from
+	 * being overwritten by next ndo_set_rx_mode call().
+	 */
+	spin_lock(&nic->rx_mode_wq_lock);
+	mode = vf_work->mode;
+	mc = vf_work->mc;
+	vf_work->mc = NULL;
+	spin_unlock(&nic->rx_mode_wq_lock);
+
+	__nicvf_set_rx_mode_task(mode, mc, nic);
 }
 
 static void nicvf_set_rx_mode(struct net_device *netdev)
@@ -2004,9 +2057,12 @@ static void nicvf_set_rx_mode(struct net_device *netdev)
 			}
 		}
 	}
+	spin_lock(&nic->rx_mode_wq_lock);
+	kfree(nic->rx_mode_work.mc);
 	nic->rx_mode_work.mc = mc_list;
 	nic->rx_mode_work.mode = mode;
-	queue_delayed_work(nicvf_rx_mode_wq, &nic->rx_mode_work.work, 2 * HZ);
+	queue_delayed_work(nicvf_rx_mode_wq, &nic->rx_mode_work.work, 0);
+	spin_unlock(&nic->rx_mode_wq_lock);
 }
 
 static const struct net_device_ops nicvf_netdev_ops = {
@@ -2163,6 +2219,7 @@ static int nicvf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	INIT_WORK(&nic->reset_task, nicvf_reset_task);
 
 	INIT_DELAYED_WORK(&nic->rx_mode_work.work, nicvf_set_rx_mode_task);
+	spin_lock_init(&nic->rx_mode_wq_lock);
 
 	err = register_netdev(netdev);
 	if (err) {

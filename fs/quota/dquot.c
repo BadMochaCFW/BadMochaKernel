@@ -711,21 +711,18 @@ EXPORT_SYMBOL(dquot_quota_sync);
 static unsigned long
 dqcache_shrink_scan(struct shrinker *shrink, struct shrink_control *sc)
 {
-	struct list_head *head;
 	struct dquot *dquot;
 	unsigned long freed = 0;
 
 	spin_lock(&dq_list_lock);
-	head = free_dquots.prev;
-	while (head != &free_dquots && sc->nr_to_scan) {
-		dquot = list_entry(head, struct dquot, dq_free);
+	while (!list_empty(&free_dquots) && sc->nr_to_scan) {
+		dquot = list_first_entry(&free_dquots, struct dquot, dq_free);
 		remove_dquot_hash(dquot);
 		remove_free_dquot(dquot);
 		remove_inuse(dquot);
 		do_destroy_dquot(dquot);
 		sc->nr_to_scan--;
 		freed++;
-		head = free_dquots.prev;
 	}
 	spin_unlock(&dq_list_lock);
 	return freed;
@@ -1996,8 +1993,8 @@ int __dquot_transfer(struct inode *inode, struct dquot **transfer_to)
 				       &warn_to[cnt]);
 		if (ret)
 			goto over_quota;
-		ret = dquot_add_space(transfer_to[cnt], cur_space, rsv_space, 0,
-				      &warn_to[cnt]);
+		ret = dquot_add_space(transfer_to[cnt], cur_space, rsv_space,
+				      DQUOT_SPACE_WARN, &warn_to[cnt]);
 		if (ret) {
 			spin_lock(&transfer_to[cnt]->dq_dqb_lock);
 			dquot_decr_inodes(transfer_to[cnt], inode_usage);

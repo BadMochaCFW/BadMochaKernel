@@ -31,6 +31,7 @@
 #include <linux/iopoll.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
+#include <linux/of_clk.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
 #include <linux/pm_domain.h>
@@ -523,16 +524,10 @@ EXPORT_SYMBOL(tegra_powergate_power_off);
  */
 int tegra_powergate_is_powered(unsigned int id)
 {
-	int status;
-
 	if (!tegra_powergate_is_valid(id))
 		return -EINVAL;
 
-	mutex_lock(&pmc->powergates_lock);
-	status = tegra_powergate_state(id);
-	mutex_unlock(&pmc->powergates_lock);
-
-	return status;
+	return tegra_powergate_state(id);
 }
 
 /**
@@ -559,21 +554,27 @@ EXPORT_SYMBOL(tegra_powergate_remove_clamping);
 int tegra_powergate_sequence_power_up(unsigned int id, struct clk *clk,
 				      struct reset_control *rst)
 {
-	struct tegra_powergate pg;
+	struct tegra_powergate *pg;
 	int err;
 
 	if (!tegra_powergate_is_available(id))
 		return -EINVAL;
 
-	pg.id = id;
-	pg.clks = &clk;
-	pg.num_clks = 1;
-	pg.reset = rst;
-	pg.pmc = pmc;
+	pg = kzalloc(sizeof(*pg), GFP_KERNEL);
+	if (!pg)
+		return -ENOMEM;
 
-	err = tegra_powergate_power_up(&pg, false);
+	pg->id = id;
+	pg->clks = &clk;
+	pg->num_clks = 1;
+	pg->reset = rst;
+	pg->pmc = pmc;
+
+	err = tegra_powergate_power_up(pg, false);
 	if (err)
 		pr_err("failed to turn on partition %d: %d\n", id, err);
+
+	kfree(pg);
 
 	return err;
 }
@@ -725,7 +726,7 @@ static int tegra_powergate_of_get_clks(struct tegra_powergate *pg,
 	unsigned int i, count;
 	int err;
 
-	count = of_count_phandle_with_args(np, "clocks", "#clock-cells");
+	count = of_clk_get_parent_count(np);
 	if (count == 0)
 		return -ENODEV;
 
@@ -1281,7 +1282,7 @@ static void tegra_pmc_init_tsense_reset(struct tegra_pmc *pmc)
 	if (!pmc->soc->has_tsense_reset)
 		return;
 
-	np = of_find_node_by_name(pmc->dev->of_node, "i2c-thermtrip");
+	np = of_get_child_by_name(pmc->dev->of_node, "i2c-thermtrip");
 	if (!np) {
 		dev_warn(dev, "i2c-thermtrip node not found, %s.\n", disabled);
 		return;

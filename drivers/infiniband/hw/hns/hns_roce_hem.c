@@ -170,7 +170,7 @@ int hns_roce_calc_hem_mhop(struct hns_roce_dev *hr_dev,
 	case 3:
 		mhop->l2_idx = table_idx & (chunk_ba_num - 1);
 		mhop->l1_idx = table_idx / chunk_ba_num & (chunk_ba_num - 1);
-		mhop->l0_idx = table_idx / chunk_ba_num / chunk_ba_num;
+		mhop->l0_idx = (table_idx / chunk_ba_num) / chunk_ba_num;
 		break;
 	case 2:
 		mhop->l1_idx = table_idx & (chunk_ba_num - 1);
@@ -342,7 +342,7 @@ static int hns_roce_set_hem(struct hns_roce_dev *hr_dev,
 			} else {
 				break;
 			}
-			msleep(HW_SYNC_SLEEP_TIME_INTERVAL);
+			mdelay(HW_SYNC_SLEEP_TIME_INTERVAL);
 		}
 
 		bt_cmd_l = (u32)bt_ba;
@@ -494,6 +494,9 @@ static int hns_roce_table_mhop_get(struct hns_roce_dev *hr_dev,
 			step_idx = 1;
 		} else if (hop_num == HNS_ROCE_HOP_NUM_0) {
 			step_idx = 0;
+		} else {
+			ret = -EINVAL;
+			goto err_dma_alloc_l1;
 		}
 
 		/* set HEM base address to hardware */
@@ -742,6 +745,8 @@ void *hns_roce_table_find(struct hns_roce_dev *hr_dev,
 		idx_offset = (obj & (table->num_obj - 1)) % obj_per_chunk;
 		dma_offset = offset = idx_offset * table->obj_size;
 	} else {
+		u32 seg_size = 64; /* 8 bytes per BA and 8 BA per segment */
+
 		hns_roce_calc_hem_mhop(hr_dev, table, &mhop_obj, &mhop);
 		/* mtt mhop */
 		i = mhop.l0_idx;
@@ -753,8 +758,8 @@ void *hns_roce_table_find(struct hns_roce_dev *hr_dev,
 			hem_idx = i;
 
 		hem = table->hem[hem_idx];
-		dma_offset = offset = (obj & (table->num_obj - 1)) *
-				       table->obj_size % mhop.bt_chunk_size;
+		dma_offset = offset = (obj & (table->num_obj - 1)) * seg_size %
+				       mhop.bt_chunk_size;
 		if (mhop.hop_num == 2)
 			dma_offset = offset = 0;
 	}

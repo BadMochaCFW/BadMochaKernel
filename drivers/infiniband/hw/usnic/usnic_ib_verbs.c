@@ -334,13 +334,16 @@ int usnic_ib_query_port(struct ib_device *ibdev, u8 port,
 
 	usnic_dbg("\n");
 
-	mutex_lock(&us_ibdev->usdev_lock);
 	if (ib_get_eth_speed(ibdev, port, &props->active_speed,
-			     &props->active_width)) {
-		mutex_unlock(&us_ibdev->usdev_lock);
+			     &props->active_width))
 		return -EINVAL;
-	}
 
+	/*
+	 * usdev_lock is acquired after (and not before) ib_get_eth_speed call
+	 * because acquiring rtnl_lock in ib_get_eth_speed, while holding
+	 * usdev_lock could lead to a deadlock.
+	 */
+	mutex_lock(&us_ibdev->usdev_lock);
 	/* props being zeroed by the caller, avoid zeroing it here */
 
 	props->lid = 0;
@@ -666,7 +669,7 @@ int usnic_ib_dereg_mr(struct ib_mr *ibmr)
 
 	usnic_dbg("va 0x%lx length 0x%zx\n", mr->umem->va, mr->umem->length);
 
-	usnic_uiom_reg_release(mr->umem, ibmr->pd->uobject->context->closing);
+	usnic_uiom_reg_release(mr->umem, ibmr->uobject->context);
 	kfree(mr);
 	return 0;
 }
@@ -771,15 +774,15 @@ int usnic_ib_destroy_ah(struct ib_ah *ah)
 	return -EINVAL;
 }
 
-int usnic_ib_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
-				struct ib_send_wr **bad_wr)
+int usnic_ib_post_send(struct ib_qp *ibqp, const struct ib_send_wr *wr,
+		       const struct ib_send_wr **bad_wr)
 {
 	usnic_dbg("\n");
 	return -EINVAL;
 }
 
-int usnic_ib_post_recv(struct ib_qp *ibqp, struct ib_recv_wr *wr,
-				struct ib_recv_wr **bad_wr)
+int usnic_ib_post_recv(struct ib_qp *ibqp, const struct ib_recv_wr *wr,
+		       const struct ib_recv_wr **bad_wr)
 {
 	usnic_dbg("\n");
 	return -EINVAL;

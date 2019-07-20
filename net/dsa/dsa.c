@@ -19,12 +19,10 @@
 #include <linux/of_mdio.h>
 #include <linux/of_platform.h>
 #include <linux/of_net.h>
-#include <linux/of_gpio.h>
 #include <linux/netdevice.h>
 #include <linux/sysfs.h>
 #include <linux/phy_fixed.h>
 #include <linux/ptp_classify.h>
-#include <linux/gpio/consumer.h>
 #include <linux/etherdevice.h>
 
 #include "dsa_priv.h"
@@ -295,15 +293,22 @@ static int __init dsa_init_module(void)
 
 	rc = dsa_slave_register_notifier();
 	if (rc)
-		return rc;
+		goto register_notifier_fail;
 
 	rc = dsa_legacy_register();
 	if (rc)
-		return rc;
+		goto legacy_register_fail;
 
 	dev_add_pack(&dsa_pack_type);
 
 	return 0;
+
+legacy_register_fail:
+	dsa_slave_unregister_notifier();
+register_notifier_fail:
+	destroy_workqueue(dsa_owq);
+
+	return rc;
 }
 module_init(dsa_init_module);
 

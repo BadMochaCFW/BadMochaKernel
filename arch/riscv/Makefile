@@ -8,7 +8,6 @@
 # for more details.
 #
 
-LDFLAGS         :=
 OBJCOPYFLAGS    := -O binary
 LDFLAGS_vmlinux :=
 ifeq ($(CONFIG_DYNAMIC_FTRACE),y)
@@ -26,8 +25,11 @@ ifeq ($(CONFIG_ARCH_RV64I),y)
 
 	KBUILD_CFLAGS += -mabi=lp64
 	KBUILD_AFLAGS += -mabi=lp64
+	
+	KBUILD_CFLAGS	+= $(call cc-ifversion, -ge, 0500, -DCONFIG_ARCH_SUPPORTS_INT128)
+
 	KBUILD_MARCH = rv64im
-	LDFLAGS += -melf64lriscv
+	KBUILD_LDFLAGS += -melf64lriscv
 else
 	BITS := 32
 	UTS_MACHINE := riscv32
@@ -35,7 +37,7 @@ else
 	KBUILD_CFLAGS += -mabi=ilp32
 	KBUILD_AFLAGS += -mabi=ilp32
 	KBUILD_MARCH = rv32im
-	LDFLAGS += -melf32lriscv
+	KBUILD_LDFLAGS += -melf32lriscv
 endif
 
 KBUILD_CFLAGS += -Wall
@@ -71,10 +73,17 @@ KBUILD_CFLAGS_MODULE += $(call cc-option,-mno-relax)
 # architectures.  It's faster to have GCC emit only aligned accesses.
 KBUILD_CFLAGS += $(call cc-option,-mstrict-align)
 
+# arch specific predefines for sparse
+CHECKFLAGS += -D__riscv -D__riscv_xlen=$(BITS)
+
 head-y := arch/riscv/kernel/head.o
 
 core-y += arch/riscv/kernel/ arch/riscv/mm/
 
 libs-y += arch/riscv/lib/
+
+PHONY += vdso_install
+vdso_install:
+	$(Q)$(MAKE) $(build)=arch/riscv/kernel/vdso $@
 
 all: vmlinux

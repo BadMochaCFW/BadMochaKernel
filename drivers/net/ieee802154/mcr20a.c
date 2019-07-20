@@ -15,10 +15,11 @@
  */
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/gpio.h>
+#include <linux/gpio/consumer.h>
 #include <linux/spi/spi.h>
 #include <linux/workqueue.h>
 #include <linux/interrupt.h>
+#include <linux/irq.h>
 #include <linux/skbuff.h>
 #include <linux/of_gpio.h>
 #include <linux/regmap.h>
@@ -538,6 +539,8 @@ mcr20a_start(struct ieee802154_hw *hw)
 	dev_dbg(printdev(lp), "no slotted operation\n");
 	ret = regmap_update_bits(lp->regmap_dar, DAR_PHY_CTRL1,
 				 DAR_PHY_CTRL1_SLOTTED, 0x0);
+	if (ret < 0)
+		return ret;
 
 	/* enable irq */
 	enable_irq(lp->spi->irq);
@@ -545,11 +548,15 @@ mcr20a_start(struct ieee802154_hw *hw)
 	/* Unmask SEQ interrupt */
 	ret = regmap_update_bits(lp->regmap_dar, DAR_PHY_CTRL2,
 				 DAR_PHY_CTRL2_SEQMSK, 0x0);
+	if (ret < 0)
+		return ret;
 
 	/* Start the RX sequence */
 	dev_dbg(printdev(lp), "start the RX sequence\n");
 	ret = regmap_update_bits(lp->regmap_dar, DAR_PHY_CTRL1,
 				 DAR_PHY_CTRL1_XCVSEQ_MASK, MCR20A_XCVSEQ_RX);
+	if (ret < 0)
+		return ret;
 
 	return 0;
 }
@@ -902,19 +909,19 @@ mcr20a_irq_clean_complete(void *context)
 
 	switch (seq_state) {
 	/* TX IRQ, RX IRQ and SEQ IRQ */
-	case (0x03):
+	case (DAR_IRQSTS1_TXIRQ | DAR_IRQSTS1_SEQIRQ):
 		if (lp->is_tx) {
 			lp->is_tx = 0;
 			dev_dbg(printdev(lp), "TX is done. No ACK\n");
 			mcr20a_handle_tx_complete(lp);
 		}
 		break;
-	case (0x05):
+	case (DAR_IRQSTS1_RXIRQ | DAR_IRQSTS1_SEQIRQ):
 			/* rx is starting */
 			dev_dbg(printdev(lp), "RX is starting\n");
 			mcr20a_handle_rx(lp);
 		break;
-	case (0x07):
+	case (DAR_IRQSTS1_RXIRQ | DAR_IRQSTS1_TXIRQ | DAR_IRQSTS1_SEQIRQ):
 		if (lp->is_tx) {
 			/* tx is done */
 			lp->is_tx = 0;
@@ -926,7 +933,7 @@ mcr20a_irq_clean_complete(void *context)
 			mcr20a_handle_rx(lp);
 		}
 		break;
-	case (0x01):
+	case (DAR_IRQSTS1_SEQIRQ):
 		if (lp->is_tx) {
 			dev_dbg(printdev(lp), "TX is starting\n");
 			mcr20a_handle_tx(lp);

@@ -68,7 +68,7 @@ static inline struct sk_buff *__skb_dequeue_bad_txq(struct Qdisc *q)
 			skb = __skb_dequeue(&q->skb_bad_txq);
 			if (qdisc_is_percpu_stats(q)) {
 				qdisc_qstats_cpu_backlog_dec(q, skb);
-				qdisc_qstats_cpu_qlen_dec(q);
+				qdisc_qstats_atomic_qlen_dec(q);
 			} else {
 				qdisc_qstats_backlog_dec(q, skb);
 				q->q.qlen--;
@@ -108,7 +108,7 @@ static inline void qdisc_enqueue_skb_bad_txq(struct Qdisc *q,
 
 	if (qdisc_is_percpu_stats(q)) {
 		qdisc_qstats_cpu_backlog_inc(q, skb);
-		qdisc_qstats_cpu_qlen_inc(q);
+		qdisc_qstats_atomic_qlen_inc(q);
 	} else {
 		qdisc_qstats_backlog_inc(q, skb);
 		q->q.qlen++;
@@ -147,7 +147,7 @@ static inline int dev_requeue_skb_locked(struct sk_buff *skb, struct Qdisc *q)
 
 		qdisc_qstats_cpu_requeues_inc(q);
 		qdisc_qstats_cpu_backlog_inc(q, skb);
-		qdisc_qstats_cpu_qlen_inc(q);
+		qdisc_qstats_atomic_qlen_inc(q);
 
 		skb = next;
 	}
@@ -252,7 +252,7 @@ static struct sk_buff *dequeue_skb(struct Qdisc *q, bool *validate,
 			skb = __skb_dequeue(&q->gso_skb);
 			if (qdisc_is_percpu_stats(q)) {
 				qdisc_qstats_cpu_backlog_dec(q, skb);
-				qdisc_qstats_cpu_qlen_dec(q);
+				qdisc_qstats_atomic_qlen_dec(q);
 			} else {
 				qdisc_qstats_backlog_dec(q, skb);
 				q->q.qlen--;
@@ -346,9 +346,6 @@ bool sch_direct_xmit(struct sk_buff *skb, struct Qdisc *q,
 		return false;
 	}
 
-	if (ret && netif_xmit_frozen_or_stopped(txq))
-		return false;
-
 	return true;
 }
 
@@ -373,33 +370,24 @@ bool sch_direct_xmit(struct sk_buff *skb, struct Qdisc *q,
  */
 static inline bool qdisc_restart(struct Qdisc *q, int *packets)
 {
-	bool more, validate, nolock = q->flags & TCQ_F_NOLOCK;
 	spinlock_t *root_lock = NULL;
 	struct netdev_queue *txq;
 	struct net_device *dev;
 	struct sk_buff *skb;
+	bool validate;
 
 	/* Dequeue packet */
-	if (nolock && test_and_set_bit(__QDISC_STATE_RUNNING, &q->state))
-		return false;
-
 	skb = dequeue_skb(q, &validate, packets);
-	if (unlikely(!skb)) {
-		if (nolock)
-			clear_bit(__QDISC_STATE_RUNNING, &q->state);
+	if (unlikely(!skb))
 		return false;
-	}
 
-	if (!nolock)
+	if (!(q->flags & TCQ_F_NOLOCK))
 		root_lock = qdisc_lock(q);
 
 	dev = qdisc_dev(q);
 	txq = skb_get_tx_queue(dev, skb);
 
-	more = sch_direct_xmit(skb, q, dev, txq, root_lock, validate);
-	if (nolock)
-		clear_bit(__QDISC_STATE_RUNNING, &q->state);
-	return more;
+	return sch_direct_xmit(skb, q, dev, txq, root_lock, validate);
 }
 
 void __qdisc_run(struct Qdisc *q)
@@ -645,7 +633,7 @@ static int pfifo_fast_enqueue(struct sk_buff *skb, struct Qdisc *qdisc,
 	if (unlikely(err))
 		return qdisc_drop_cpu(skb, qdisc, to_free);
 
-	qdisc_qstats_cpu_qlen_inc(qdisc);
+	qdisc_qstats_atomic_qlen_inc(qdisc);
 	/* Note: skb can not be used after skb_array_produce(),
 	 * so we better not use qdisc_qstats_cpu_backlog_inc()
 	 */
@@ -665,12 +653,12 @@ static struct sk_buff *pfifo_fast_dequeue(struct Qdisc *qdisc)
 		if (__skb_array_empty(q))
 			continue;
 
-		skb = skb_array_consume_bh(q);
+		skb = __skb_array_consume(q);
 	}
 	if (likely(skb)) {
 		qdisc_qstats_cpu_backlog_dec(qdisc, skb);
 		qdisc_bstats_cpu_update(qdisc, skb);
-		qdisc_qstats_cpu_qlen_dec(qdisc);
+		qdisc_qstats_atomic_qlen_dec(qdisc);
 	}
 
 	return skb;
@@ -706,7 +694,7 @@ static void pfifo_fast_reset(struct Qdisc *qdisc)
 		if (!q->ring.queue)
 			continue;
 
-		while ((skb = skb_array_consume_bh(q)) != NULL)
+		while ((skb = __skb_array_consume(q)) != NULL)
 			kfree_skb(skb);
 	}
 
@@ -714,7 +702,6 @@ static void pfifo_fast_reset(struct Qdisc *qdisc)
 		struct gnet_stats_queue *q = per_cpu_ptr(qdisc->cpu_qstats, i);
 
 		q->backlog = 0;
-		q->qlen = 0;
 	}
 }
 
@@ -864,6 +851,11 @@ struct Qdisc *qdisc_alloc(struct netdev_queue *dev_queue,
 	}
 
 	spin_lock_init(&sch->busylock);
+	lockdep_set_class(&sch->busylock,
+			  dev->qdisc_tx_busylock ?: &qdisc_tx_busylock);
+
+	/* seqlock has the same scope of busylock, for NOLOCK qdisc */
+	spin_lock_init(&sch->seqlock);
 	lockdep_set_class(&sch->busylock,
 			  dev->qdisc_tx_busylock ?: &qdisc_tx_busylock);
 
@@ -1106,6 +1098,10 @@ static void dev_deactivate_queue(struct net_device *dev,
 
 	qdisc = rtnl_dereference(dev_queue->qdisc);
 	if (qdisc) {
+		bool nolock = qdisc->flags & TCQ_F_NOLOCK;
+
+		if (nolock)
+			spin_lock_bh(&qdisc->seqlock);
 		spin_lock_bh(qdisc_lock(qdisc));
 
 		if (!(qdisc->flags & TCQ_F_BUILTIN))
@@ -1115,6 +1111,8 @@ static void dev_deactivate_queue(struct net_device *dev,
 		qdisc_reset(qdisc);
 
 		spin_unlock_bh(qdisc_lock(qdisc));
+		if (nolock)
+			spin_unlock_bh(&qdisc->seqlock);
 	}
 }
 
@@ -1131,17 +1129,13 @@ static bool some_qdisc_is_busy(struct net_device *dev)
 		dev_queue = netdev_get_tx_queue(dev, i);
 		q = dev_queue->qdisc_sleeping;
 
-		if (q->flags & TCQ_F_NOLOCK) {
-			val = test_bit(__QDISC_STATE_SCHED, &q->state);
-		} else {
-			root_lock = qdisc_lock(q);
-			spin_lock_bh(root_lock);
+		root_lock = qdisc_lock(q);
+		spin_lock_bh(root_lock);
 
-			val = (qdisc_is_running(q) ||
-			       test_bit(__QDISC_STATE_SCHED, &q->state));
+		val = (qdisc_is_running(q) ||
+		       test_bit(__QDISC_STATE_SCHED, &q->state));
 
-			spin_unlock_bh(root_lock);
-		}
+		spin_unlock_bh(root_lock);
 
 		if (val)
 			return true;

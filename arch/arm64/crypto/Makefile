@@ -23,6 +23,9 @@ sha3-ce-y := sha3-ce-glue.o sha3-ce-core.o
 obj-$(CONFIG_CRYPTO_SM3_ARM64_CE) += sm3-ce.o
 sm3-ce-y := sm3-ce-glue.o sm3-ce-core.o
 
+obj-$(CONFIG_CRYPTO_SM4_ARM64_CE) += sm4-ce.o
+sm4-ce-y := sm4-ce-glue.o sm4-ce-core.o
+
 obj-$(CONFIG_CRYPTO_GHASH_ARM64_CE) += ghash-ce.o
 ghash-ce-y := ghash-ce-glue.o ghash-ce-core.o
 
@@ -52,9 +55,6 @@ sha512-arm64-y := sha512-glue.o sha512-core.o
 
 obj-$(CONFIG_CRYPTO_CHACHA20_NEON) += chacha20-neon.o
 chacha20-neon-y := chacha20-neon-core.o chacha20-neon-glue.o
-
-obj-$(CONFIG_CRYPTO_SPECK_NEON) += speck-neon.o
-speck-neon-y := speck-neon-core.o speck-neon-glue.o
 
 obj-$(CONFIG_CRYPTO_AES_ARM64) += aes-arm64.o
 aes-arm64-y := aes-cipher-core.o aes-cipher-glue.o

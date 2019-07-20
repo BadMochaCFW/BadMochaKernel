@@ -39,6 +39,9 @@ static inline u64 btrfs_sb_offset(int mirror)
 struct btrfs_device;
 struct btrfs_fs_devices;
 
+int btrfs_verify_level_key(struct btrfs_fs_info *fs_info,
+			   struct extent_buffer *eb, int level,
+			   struct btrfs_key *first_key, u64 parent_transid);
 struct extent_buffer *read_tree_block(struct btrfs_fs_info *fs_info, u64 bytenr,
 				      u64 parent_transid, int level,
 				      struct btrfs_key *first_key);
@@ -120,8 +123,9 @@ blk_status_t btrfs_bio_wq_end_io(struct btrfs_fs_info *info, struct bio *bio,
 blk_status_t btrfs_wq_submit_bio(struct btrfs_fs_info *fs_info, struct bio *bio,
 			int mirror_num, unsigned long bio_flags,
 			u64 bio_offset, void *private_data,
-			extent_submit_bio_start_t *submit_bio_start,
-			extent_submit_bio_done_t *submit_bio_done);
+			extent_submit_bio_start_t *submit_bio_start);
+blk_status_t btrfs_submit_bio_done(void *private_data, struct bio *bio,
+			  int mirror_num);
 int btrfs_write_tree_block(struct extent_buffer *buf);
 void btrfs_wait_tree_block_writeback(struct extent_buffer *buf);
 int btrfs_init_log_root_tree(struct btrfs_trans_handle *trans,

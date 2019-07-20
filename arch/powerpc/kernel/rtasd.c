@@ -274,25 +274,14 @@ void pSeries_log_error(char *buf, unsigned int err_type, int fatal)
 }
 
 #ifdef CONFIG_PPC_PSERIES
-static s32 prrn_update_scope;
-
-static void prrn_work_fn(struct work_struct *work)
+static void handle_prrn_event(s32 scope)
 {
 	/*
 	 * For PRRN, we must pass the negative of the scope value in
 	 * the RTAS event.
 	 */
-	pseries_devicetree_update(-prrn_update_scope);
+	pseries_devicetree_update(-scope);
 	numa_update_cpu_topology(false);
-}
-
-static DECLARE_WORK(prrn_work, prrn_work_fn);
-
-static void prrn_schedule_update(u32 scope)
-{
-	flush_work(&prrn_work);
-	prrn_update_scope = scope;
-	schedule_work(&prrn_work);
 }
 
 static void handle_rtas_event(const struct rtas_error_log *log)
@@ -303,7 +292,7 @@ static void handle_rtas_event(const struct rtas_error_log *log)
 	/* For PRRN Events the extended log length is used to denote
 	 * the scope for calling rtas update-nodes.
 	 */
-	prrn_schedule_update(rtas_error_extended_log_length(log));
+	handle_prrn_event(rtas_error_extended_log_length(log));
 }
 
 #else
@@ -559,7 +548,8 @@ static int __init rtas_event_scan_init(void)
 	rtas_error_log_max = rtas_get_error_log_max();
 	rtas_error_log_buffer_max = rtas_error_log_max + sizeof(int);
 
-	rtas_log_buf = vmalloc(rtas_error_log_buffer_max*LOG_NUMBER);
+	rtas_log_buf = vmalloc(array_size(LOG_NUMBER,
+					  rtas_error_log_buffer_max));
 	if (!rtas_log_buf) {
 		printk(KERN_ERR "rtasd: no memory\n");
 		return -ENOMEM;

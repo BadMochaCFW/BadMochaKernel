@@ -8,14 +8,13 @@
 #include <linux/delay.h>
 #include <linux/idr.h>
 #include <linux/nvmem-provider.h>
+#include <linux/pm_runtime.h>
+#include <linux/sched/signal.h>
 #include <linux/sizes.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 
 #include "tb.h"
-
-/* Switch authorization from userspace is serialized by this lock */
-static DEFINE_MUTEX(switch_lock);
 
 /* Switch NVM support */
 
@@ -236,8 +235,14 @@ static int tb_switch_nvm_read(void *priv, unsigned int offset, void *val,
 			      size_t bytes)
 {
 	struct tb_switch *sw = priv;
+	int ret;
 
-	return dma_port_flash_read(sw->dma_port, offset, val, bytes);
+	pm_runtime_get_sync(&sw->dev);
+	ret = dma_port_flash_read(sw->dma_port, offset, val, bytes);
+	pm_runtime_mark_last_busy(&sw->dev);
+	pm_runtime_put_autosuspend(&sw->dev);
+
+	return ret;
 }
 
 static int tb_switch_nvm_write(void *priv, unsigned int offset, void *val,
@@ -246,8 +251,8 @@ static int tb_switch_nvm_write(void *priv, unsigned int offset, void *val,
 	struct tb_switch *sw = priv;
 	int ret = 0;
 
-	if (mutex_lock_interruptible(&switch_lock))
-		return -ERESTARTSYS;
+	if (!mutex_trylock(&sw->tb->lock))
+		return restart_syscall();
 
 	/*
 	 * Since writing the NVM image might require some special steps,
@@ -267,7 +272,7 @@ static int tb_switch_nvm_write(void *priv, unsigned int offset, void *val,
 	memcpy(sw->nvm->buf + offset, val, bytes);
 
 unlock:
-	mutex_unlock(&switch_lock);
+	mutex_unlock(&sw->tb->lock);
 
 	return ret;
 }
@@ -356,10 +361,7 @@ static int tb_switch_nvm_add(struct tb_switch *sw)
 	}
 	nvm->non_active = nvm_dev;
 
-	mutex_lock(&switch_lock);
 	sw->nvm = nvm;
-	mutex_unlock(&switch_lock);
-
 	return 0;
 
 err_nvm_active:
@@ -376,10 +378,8 @@ static void tb_switch_nvm_remove(struct tb_switch *sw)
 {
 	struct tb_switch_nvm *nvm;
 
-	mutex_lock(&switch_lock);
 	nvm = sw->nvm;
 	sw->nvm = NULL;
-	mutex_unlock(&switch_lock);
 
 	if (!nvm)
 		return;
@@ -710,8 +710,8 @@ static int tb_switch_set_authorized(struct tb_switch *sw, unsigned int val)
 {
 	int ret = -EINVAL;
 
-	if (mutex_lock_interruptible(&switch_lock))
-		return -ERESTARTSYS;
+	if (!mutex_trylock(&sw->tb->lock))
+		return restart_syscall();
 
 	if (sw->authorized)
 		goto unlock;
@@ -722,6 +722,7 @@ static int tb_switch_set_authorized(struct tb_switch *sw, unsigned int val)
 	 * the new tunnel too early.
 	 */
 	pci_lock_rescan_remove();
+	pm_runtime_get_sync(&sw->dev);
 
 	switch (val) {
 	/* Approve switch */
@@ -742,6 +743,8 @@ static int tb_switch_set_authorized(struct tb_switch *sw, unsigned int val)
 		break;
 	}
 
+	pm_runtime_mark_last_busy(&sw->dev);
+	pm_runtime_put_autosuspend(&sw->dev);
 	pci_unlock_rescan_remove();
 
 	if (!ret) {
@@ -751,7 +754,7 @@ static int tb_switch_set_authorized(struct tb_switch *sw, unsigned int val)
 	}
 
 unlock:
-	mutex_unlock(&switch_lock);
+	mutex_unlock(&sw->tb->lock);
 	return ret;
 }
 
@@ -808,15 +811,15 @@ static ssize_t key_show(struct device *dev, struct device_attribute *attr,
 	struct tb_switch *sw = tb_to_switch(dev);
 	ssize_t ret;
 
-	if (mutex_lock_interruptible(&switch_lock))
-		return -ERESTARTSYS;
+	if (!mutex_trylock(&sw->tb->lock))
+		return restart_syscall();
 
 	if (sw->key)
 		ret = sprintf(buf, "%*phN\n", TB_SWITCH_KEY_SIZE, sw->key);
 	else
 		ret = sprintf(buf, "\n");
 
-	mutex_unlock(&switch_lock);
+	mutex_unlock(&sw->tb->lock);
 	return ret;
 }
 
@@ -833,8 +836,8 @@ static ssize_t key_store(struct device *dev, struct device_attribute *attr,
 	else if (hex2bin(key, buf, sizeof(key)))
 		return -EINVAL;
 
-	if (mutex_lock_interruptible(&switch_lock))
-		return -ERESTARTSYS;
+	if (!mutex_trylock(&sw->tb->lock))
+		return restart_syscall();
 
 	if (sw->authorized) {
 		ret = -EBUSY;
@@ -849,10 +852,34 @@ static ssize_t key_store(struct device *dev, struct device_attribute *attr,
 		}
 	}
 
-	mutex_unlock(&switch_lock);
+	mutex_unlock(&sw->tb->lock);
 	return ret;
 }
 static DEVICE_ATTR(key, 0600, key_show, key_store);
+
+static void nvm_authenticate_start(struct tb_switch *sw)
+{
+	struct pci_dev *root_port;
+
+	/*
+	 * During host router NVM upgrade we should not allow root port to
+	 * go into D3cold because some root ports cannot trigger PME
+	 * itself. To be on the safe side keep the root port in D0 during
+	 * the whole upgrade process.
+	 */
+	root_port = pci_find_pcie_root_port(sw->tb->nhi->pdev);
+	if (root_port)
+		pm_runtime_get_noresume(&root_port->dev);
+}
+
+static void nvm_authenticate_complete(struct tb_switch *sw)
+{
+	struct pci_dev *root_port;
+
+	root_port = pci_find_pcie_root_port(sw->tb->nhi->pdev);
+	if (root_port)
+		pm_runtime_put(&root_port->dev);
+}
 
 static ssize_t nvm_authenticate_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
@@ -871,8 +898,8 @@ static ssize_t nvm_authenticate_store(struct device *dev,
 	bool val;
 	int ret;
 
-	if (mutex_lock_interruptible(&switch_lock))
-		return -ERESTARTSYS;
+	if (!mutex_trylock(&sw->tb->lock))
+		return restart_syscall();
 
 	/* If NVMem devices are not yet added */
 	if (!sw->nvm) {
@@ -888,20 +915,39 @@ static ssize_t nvm_authenticate_store(struct device *dev,
 	nvm_clear_auth_status(sw);
 
 	if (val) {
-		ret = nvm_validate_and_write(sw);
-		if (ret)
+		if (!sw->nvm->buf) {
+			ret = -EINVAL;
 			goto exit_unlock;
+		}
+
+		pm_runtime_get_sync(&sw->dev);
+		ret = nvm_validate_and_write(sw);
+		if (ret) {
+			pm_runtime_mark_last_busy(&sw->dev);
+			pm_runtime_put_autosuspend(&sw->dev);
+			goto exit_unlock;
+		}
 
 		sw->nvm->authenticating = true;
 
-		if (!tb_route(sw))
+		if (!tb_route(sw)) {
+			/*
+			 * Keep root port from suspending as long as the
+			 * NVM upgrade process is running.
+			 */
+			nvm_authenticate_start(sw);
 			ret = nvm_authenticate_host(sw);
-		else
+			if (ret)
+				nvm_authenticate_complete(sw);
+		} else {
 			ret = nvm_authenticate_device(sw);
+		}
+		pm_runtime_mark_last_busy(&sw->dev);
+		pm_runtime_put_autosuspend(&sw->dev);
 	}
 
 exit_unlock:
-	mutex_unlock(&switch_lock);
+	mutex_unlock(&sw->tb->lock);
 
 	if (ret)
 		return ret;
@@ -915,8 +961,8 @@ static ssize_t nvm_version_show(struct device *dev,
 	struct tb_switch *sw = tb_to_switch(dev);
 	int ret;
 
-	if (mutex_lock_interruptible(&switch_lock))
-		return -ERESTARTSYS;
+	if (!mutex_trylock(&sw->tb->lock))
+		return restart_syscall();
 
 	if (sw->safe_mode)
 		ret = -ENODATA;
@@ -925,7 +971,7 @@ static ssize_t nvm_version_show(struct device *dev,
 	else
 		ret = sprintf(buf, "%x.%x\n", sw->nvm->major, sw->nvm->minor);
 
-	mutex_unlock(&switch_lock);
+	mutex_unlock(&sw->tb->lock);
 
 	return ret;
 }
@@ -1023,9 +1069,29 @@ static void tb_switch_release(struct device *dev)
 	kfree(sw);
 }
 
+/*
+ * Currently only need to provide the callbacks. Everything else is handled
+ * in the connection manager.
+ */
+static int __maybe_unused tb_switch_runtime_suspend(struct device *dev)
+{
+	return 0;
+}
+
+static int __maybe_unused tb_switch_runtime_resume(struct device *dev)
+{
+	return 0;
+}
+
+static const struct dev_pm_ops tb_switch_pm_ops = {
+	SET_RUNTIME_PM_OPS(tb_switch_runtime_suspend, tb_switch_runtime_resume,
+			   NULL)
+};
+
 struct device_type tb_switch_type = {
 	.name = "thunderbolt_device",
 	.release = tb_switch_release,
+	.pm = &tb_switch_pm_ops,
 };
 
 static int tb_switch_get_generation(struct tb_switch *sw)
@@ -1223,13 +1289,14 @@ int tb_switch_configure(struct tb_switch *sw)
 	return tb_plug_events_active(sw, true);
 }
 
-static void tb_switch_set_uuid(struct tb_switch *sw)
+static int tb_switch_set_uuid(struct tb_switch *sw)
 {
 	u32 uuid[4];
-	int cap;
+	int cap, ret;
 
+	ret = 0;
 	if (sw->uuid)
-		return;
+		return ret;
 
 	/*
 	 * The newer controllers include fused UUID as part of link
@@ -1237,7 +1304,9 @@ static void tb_switch_set_uuid(struct tb_switch *sw)
 	 */
 	cap = tb_switch_find_vse_cap(sw, TB_VSE_CAP_LINK_CONTROLLER);
 	if (cap > 0) {
-		tb_sw_read(sw, uuid, TB_CFG_SWITCH, cap + 3, 4);
+		ret = tb_sw_read(sw, uuid, TB_CFG_SWITCH, cap + 3, 4);
+		if (ret)
+			return ret;
 	} else {
 		/*
 		 * ICM generates UUID based on UID and fills the upper
@@ -1252,6 +1321,9 @@ static void tb_switch_set_uuid(struct tb_switch *sw)
 	}
 
 	sw->uuid = kmemdup(uuid, sizeof(uuid), GFP_KERNEL);
+	if (!sw->uuid)
+		ret = -ENOMEM;
+	return ret;
 }
 
 static int tb_switch_add_dma_port(struct tb_switch *sw)
@@ -1295,9 +1367,15 @@ static int tb_switch_add_dma_port(struct tb_switch *sw)
 	if (ret <= 0)
 		return ret;
 
+	/* Now we can allow root port to suspend again */
+	if (!tb_route(sw))
+		nvm_authenticate_complete(sw);
+
 	if (status) {
 		tb_sw_info(sw, "switch flash authentication failed\n");
-		tb_switch_set_uuid(sw);
+		ret = tb_switch_set_uuid(sw);
+		if (ret)
+			return ret;
 		nvm_set_auth_status(sw, status);
 	}
 
@@ -1347,7 +1425,9 @@ int tb_switch_add(struct tb_switch *sw)
 		}
 		tb_sw_info(sw, "uid: %#llx\n", sw->uid);
 
-		tb_switch_set_uuid(sw);
+		ret = tb_switch_set_uuid(sw);
+		if (ret)
+			return ret;
 
 		for (i = 0; i <= sw->config.max_port_number; i++) {
 			if (sw->ports[i].disabled) {
@@ -1365,10 +1445,21 @@ int tb_switch_add(struct tb_switch *sw)
 		return ret;
 
 	ret = tb_switch_nvm_add(sw);
-	if (ret)
+	if (ret) {
 		device_del(&sw->dev);
+		return ret;
+	}
 
-	return ret;
+	pm_runtime_set_active(&sw->dev);
+	if (sw->rpm) {
+		pm_runtime_set_autosuspend_delay(&sw->dev, TB_AUTOSUSPEND_DELAY);
+		pm_runtime_use_autosuspend(&sw->dev);
+		pm_runtime_mark_last_busy(&sw->dev);
+		pm_runtime_enable(&sw->dev);
+		pm_request_autosuspend(&sw->dev);
+	}
+
+	return 0;
 }
 
 /**
@@ -1382,6 +1473,11 @@ int tb_switch_add(struct tb_switch *sw)
 void tb_switch_remove(struct tb_switch *sw)
 {
 	int i;
+
+	if (sw->rpm) {
+		pm_runtime_get_sync(&sw->dev);
+		pm_runtime_disable(&sw->dev);
+	}
 
 	/* port 0 is the switch itself and never has a remote */
 	for (i = 1; i <= sw->config.max_port_number; i++) {

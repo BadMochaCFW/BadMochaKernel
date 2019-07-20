@@ -425,36 +425,23 @@ static const struct ieee80211_regdomain *
 reg_copy_regd(const struct ieee80211_regdomain *src_regd)
 {
 	struct ieee80211_regdomain *regd;
-	int size_of_regd, size_of_wmms;
+	int size_of_regd;
 	unsigned int i;
-	struct ieee80211_wmm_rule *d_wmm, *s_wmm;
 
 	size_of_regd =
 		sizeof(struct ieee80211_regdomain) +
 		src_regd->n_reg_rules * sizeof(struct ieee80211_reg_rule);
-	size_of_wmms = src_regd->n_wmm_rules *
-		sizeof(struct ieee80211_wmm_rule);
 
-	regd = kzalloc(size_of_regd + size_of_wmms, GFP_KERNEL);
+	regd = kzalloc(size_of_regd, GFP_KERNEL);
 	if (!regd)
 		return ERR_PTR(-ENOMEM);
 
 	memcpy(regd, src_regd, sizeof(struct ieee80211_regdomain));
 
-	d_wmm = (struct ieee80211_wmm_rule *)((u8 *)regd + size_of_regd);
-	s_wmm = (struct ieee80211_wmm_rule *)((u8 *)src_regd + size_of_regd);
-	memcpy(d_wmm, s_wmm, size_of_wmms);
-
-	for (i = 0; i < src_regd->n_reg_rules; i++) {
+	for (i = 0; i < src_regd->n_reg_rules; i++)
 		memcpy(&regd->reg_rules[i], &src_regd->reg_rules[i],
 		       sizeof(struct ieee80211_reg_rule));
-		if (!src_regd->reg_rules[i].wmm_rule)
-			continue;
 
-		regd->reg_rules[i].wmm_rule = d_wmm +
-			(src_regd->reg_rules[i].wmm_rule - s_wmm) /
-			sizeof(struct ieee80211_wmm_rule);
-	}
 	return regd;
 }
 
@@ -860,9 +847,10 @@ static bool valid_regdb(const u8 *data, unsigned int size)
 	return true;
 }
 
-static void set_wmm_rule(struct ieee80211_wmm_rule *rule,
+static void set_wmm_rule(struct ieee80211_reg_rule *rrule,
 			 struct fwdb_wmm_rule *wmm)
 {
+	struct ieee80211_wmm_rule *rule = &rrule->wmm_rule;
 	unsigned int i;
 
 	for (i = 0; i < IEEE80211_NUM_ACS; i++) {
@@ -876,11 +864,13 @@ static void set_wmm_rule(struct ieee80211_wmm_rule *rule,
 		rule->ap[i].aifsn = wmm->ap[i].aifsn;
 		rule->ap[i].cot = 1000 * be16_to_cpu(wmm->ap[i].cot);
 	}
+
+	rrule->has_wmm = true;
 }
 
 static int __regdb_query_wmm(const struct fwdb_header *db,
 			     const struct fwdb_country *country, int freq,
-			     u32 *dbptr, struct ieee80211_wmm_rule *rule)
+			     struct ieee80211_reg_rule *rule)
 {
 	unsigned int ptr = be16_to_cpu(country->coll_ptr) << 2;
 	struct fwdb_collection *coll = (void *)((u8 *)db + ptr);
@@ -901,8 +891,6 @@ static int __regdb_query_wmm(const struct fwdb_header *db,
 			wmm_ptr = be16_to_cpu(rrule->wmm_ptr) << 2;
 			wmm = (void *)((u8 *)db + wmm_ptr);
 			set_wmm_rule(rule, wmm);
-			if (dbptr)
-				*dbptr = wmm_ptr;
 			return 0;
 		}
 	}
@@ -910,11 +898,13 @@ static int __regdb_query_wmm(const struct fwdb_header *db,
 	return -ENODATA;
 }
 
-int reg_query_regdb_wmm(char *alpha2, int freq, u32 *dbptr,
-			struct ieee80211_wmm_rule *rule)
+int reg_query_regdb_wmm(char *alpha2, int freq, struct ieee80211_reg_rule *rule)
 {
 	const struct fwdb_header *hdr = regdb;
 	const struct fwdb_country *country;
+
+	if (!regdb)
+		return -ENODATA;
 
 	if (IS_ERR(regdb))
 		return PTR_ERR(regdb);
@@ -922,8 +912,7 @@ int reg_query_regdb_wmm(char *alpha2, int freq, u32 *dbptr,
 	country = &hdr->country[0];
 	while (country->coll_ptr) {
 		if (alpha2_equal(alpha2, country->alpha2))
-			return __regdb_query_wmm(regdb, country, freq, dbptr,
-						 rule);
+			return __regdb_query_wmm(regdb, country, freq, rule);
 
 		country++;
 	}
@@ -932,32 +921,13 @@ int reg_query_regdb_wmm(char *alpha2, int freq, u32 *dbptr,
 }
 EXPORT_SYMBOL(reg_query_regdb_wmm);
 
-struct wmm_ptrs {
-	struct ieee80211_wmm_rule *rule;
-	u32 ptr;
-};
-
-static struct ieee80211_wmm_rule *find_wmm_ptr(struct wmm_ptrs *wmm_ptrs,
-					       u32 wmm_ptr, int n_wmms)
-{
-	int i;
-
-	for (i = 0; i < n_wmms; i++) {
-		if (wmm_ptrs[i].ptr == wmm_ptr)
-			return wmm_ptrs[i].rule;
-	}
-	return NULL;
-}
-
 static int regdb_query_country(const struct fwdb_header *db,
 			       const struct fwdb_country *country)
 {
 	unsigned int ptr = be16_to_cpu(country->coll_ptr) << 2;
 	struct fwdb_collection *coll = (void *)((u8 *)db + ptr);
 	struct ieee80211_regdomain *regdom;
-	struct ieee80211_regdomain *tmp_rd;
-	unsigned int size_of_regd, i, n_wmms = 0;
-	struct wmm_ptrs *wmm_ptrs;
+	unsigned int size_of_regd, i;
 
 	size_of_regd = sizeof(struct ieee80211_regdomain) +
 		coll->n_rules * sizeof(struct ieee80211_reg_rule);
@@ -965,12 +935,6 @@ static int regdb_query_country(const struct fwdb_header *db,
 	regdom = kzalloc(size_of_regd, GFP_KERNEL);
 	if (!regdom)
 		return -ENOMEM;
-
-	wmm_ptrs = kcalloc(coll->n_rules, sizeof(*wmm_ptrs), GFP_KERNEL);
-	if (!wmm_ptrs) {
-		kfree(regdom);
-		return -ENOMEM;
-	}
 
 	regdom->n_reg_rules = coll->n_rules;
 	regdom->alpha2[0] = country->alpha2[0];
@@ -1010,37 +974,11 @@ static int regdb_query_country(const struct fwdb_header *db,
 				1000 * be16_to_cpu(rule->cac_timeout);
 		if (rule->len >= offsetofend(struct fwdb_rule, wmm_ptr)) {
 			u32 wmm_ptr = be16_to_cpu(rule->wmm_ptr) << 2;
-			struct ieee80211_wmm_rule *wmm_pos =
-				find_wmm_ptr(wmm_ptrs, wmm_ptr, n_wmms);
-			struct fwdb_wmm_rule *wmm;
-			struct ieee80211_wmm_rule *wmm_rule;
+			struct fwdb_wmm_rule *wmm = (void *)((u8 *)db + wmm_ptr);
 
-			if (wmm_pos) {
-				rrule->wmm_rule = wmm_pos;
-				continue;
-			}
-			wmm = (void *)((u8 *)db + wmm_ptr);
-			tmp_rd = krealloc(regdom, size_of_regd + (n_wmms + 1) *
-					  sizeof(struct ieee80211_wmm_rule),
-					  GFP_KERNEL);
-
-			if (!tmp_rd) {
-				kfree(regdom);
-				kfree(wmm_ptrs);
-				return -ENOMEM;
-			}
-			regdom = tmp_rd;
-
-			wmm_rule = (struct ieee80211_wmm_rule *)
-				((u8 *)regdom + size_of_regd + n_wmms *
-				sizeof(struct ieee80211_wmm_rule));
-
-			set_wmm_rule(wmm_rule, wmm);
-			wmm_ptrs[n_wmms].ptr = wmm_ptr;
-			wmm_ptrs[n_wmms++].rule = wmm_rule;
+			set_wmm_rule(rrule, wmm);
 		}
 	}
-	kfree(wmm_ptrs);
 
 	return reg_schedule_apply(regdom);
 }
@@ -1311,7 +1249,7 @@ static bool is_valid_rd(const struct ieee80211_regdomain *rd)
  * definitions (the "2.4 GHz band", the "5 GHz band" and the "60GHz band"),
  * however it is safe for now to assume that a frequency rule should not be
  * part of a frequency's band if the start freq or end freq are off by more
- * than 2 GHz for the 2.4 and 5 GHz bands, and by more than 10 GHz for the
+ * than 2 GHz for the 2.4 and 5 GHz bands, and by more than 20 GHz for the
  * 60 GHz band.
  * This resolution can be lowered and should be considered as we add
  * regulatory rule support for other "bands".
@@ -1326,7 +1264,7 @@ static bool freq_in_rule_band(const struct ieee80211_freq_range *freq_range,
 	 * with the Channel starting frequency above 45 GHz.
 	 */
 	u32 limit = freq_khz > 45 * ONE_GHZ_IN_KHZ ?
-			10 * ONE_GHZ_IN_KHZ : 2 * ONE_GHZ_IN_KHZ;
+			20 * ONE_GHZ_IN_KHZ : 2 * ONE_GHZ_IN_KHZ;
 	if (abs(freq_khz - freq_range->start_freq_khz) <= limit)
 		return true;
 	if (abs(freq_khz - freq_range->end_freq_khz) <= limit)
@@ -1349,6 +1287,16 @@ reg_intersect_dfs_region(const enum nl80211_dfs_regions dfs_region1,
 	return dfs_region1;
 }
 
+static void reg_wmm_rules_intersect(const struct ieee80211_wmm_ac *wmm_ac1,
+				    const struct ieee80211_wmm_ac *wmm_ac2,
+				    struct ieee80211_wmm_ac *intersect)
+{
+	intersect->cw_min = max_t(u16, wmm_ac1->cw_min, wmm_ac2->cw_min);
+	intersect->cw_max = max_t(u16, wmm_ac1->cw_max, wmm_ac2->cw_max);
+	intersect->cot = min_t(u16, wmm_ac1->cot, wmm_ac2->cot);
+	intersect->aifsn = max_t(u8, wmm_ac1->aifsn, wmm_ac2->aifsn);
+}
+
 /*
  * Helper for regdom_intersect(), this does the real
  * mathematical intersection fun
@@ -1363,6 +1311,8 @@ static int reg_rules_intersect(const struct ieee80211_regdomain *rd1,
 	struct ieee80211_freq_range *freq_range;
 	const struct ieee80211_power_rule *power_rule1, *power_rule2;
 	struct ieee80211_power_rule *power_rule;
+	const struct ieee80211_wmm_rule *wmm_rule1, *wmm_rule2;
+	struct ieee80211_wmm_rule *wmm_rule;
 	u32 freq_diff, max_bandwidth1, max_bandwidth2;
 
 	freq_range1 = &rule1->freq_range;
@@ -1372,6 +1322,10 @@ static int reg_rules_intersect(const struct ieee80211_regdomain *rd1,
 	power_rule1 = &rule1->power_rule;
 	power_rule2 = &rule2->power_rule;
 	power_rule = &intersected_rule->power_rule;
+
+	wmm_rule1 = &rule1->wmm_rule;
+	wmm_rule2 = &rule2->wmm_rule;
+	wmm_rule = &intersected_rule->wmm_rule;
 
 	freq_range->start_freq_khz = max(freq_range1->start_freq_khz,
 					 freq_range2->start_freq_khz);
@@ -1415,6 +1369,29 @@ static int reg_rules_intersect(const struct ieee80211_regdomain *rd1,
 
 	intersected_rule->dfs_cac_ms = max(rule1->dfs_cac_ms,
 					   rule2->dfs_cac_ms);
+
+	if (rule1->has_wmm && rule2->has_wmm) {
+		u8 ac;
+
+		for (ac = 0; ac < IEEE80211_NUM_ACS; ac++) {
+			reg_wmm_rules_intersect(&wmm_rule1->client[ac],
+						&wmm_rule2->client[ac],
+						&wmm_rule->client[ac]);
+			reg_wmm_rules_intersect(&wmm_rule1->ap[ac],
+						&wmm_rule2->ap[ac],
+						&wmm_rule->ap[ac]);
+		}
+
+		intersected_rule->has_wmm = true;
+	} else if (rule1->has_wmm) {
+		*wmm_rule = *wmm_rule1;
+		intersected_rule->has_wmm = true;
+	} else if (rule2->has_wmm) {
+		*wmm_rule = *wmm_rule2;
+		intersected_rule->has_wmm = true;
+	} else {
+		intersected_rule->has_wmm = false;
+	}
 
 	if (!is_valid_reg_rule(intersected_rule))
 		return -EINVAL;
@@ -1653,7 +1630,7 @@ const char *reg_initiator_name(enum nl80211_reg_initiator initiator)
 	case NL80211_REGDOM_SET_BY_DRIVER:
 		return "driver";
 	case NL80211_REGDOM_SET_BY_COUNTRY_IE:
-		return "country IE";
+		return "country element";
 	default:
 		WARN_ON(1);
 		return "bug";
@@ -2237,7 +2214,9 @@ static void wiphy_update_regulatory(struct wiphy *wiphy,
 		 * as some drivers used this to restore its orig_* reg domain.
 		 */
 		if (initiator == NL80211_REGDOM_SET_BY_CORE &&
-		    wiphy->regulatory_flags & REGULATORY_CUSTOM_REG)
+		    wiphy->regulatory_flags & REGULATORY_CUSTOM_REG &&
+		    !(wiphy->regulatory_flags &
+		      REGULATORY_WIPHY_SELF_MANAGED))
 			reg_call_notifier(wiphy, lr);
 		return;
 	}
@@ -2619,7 +2598,7 @@ reg_process_hint_country_ie(struct wiphy *wiphy,
 		 * This doesn't happen yet, not sure we
 		 * ever want to support it for this case.
 		 */
-		WARN_ONCE(1, "Unexpected intersection for country IEs");
+		WARN_ONCE(1, "Unexpected intersection for country elements");
 		return REG_REQ_IGNORE;
 	}
 
@@ -2721,11 +2700,12 @@ static void reg_process_hint(struct regulatory_request *reg_request)
 {
 	struct wiphy *wiphy = NULL;
 	enum reg_request_treatment treatment;
+	enum nl80211_reg_initiator initiator = reg_request->initiator;
 
 	if (reg_request->wiphy_idx != WIPHY_IDX_INVALID)
 		wiphy = wiphy_idx_to_wiphy(reg_request->wiphy_idx);
 
-	switch (reg_request->initiator) {
+	switch (initiator) {
 	case NL80211_REGDOM_SET_BY_CORE:
 		treatment = reg_process_hint_core(reg_request);
 		break;
@@ -2743,7 +2723,7 @@ static void reg_process_hint(struct regulatory_request *reg_request)
 		treatment = reg_process_hint_country_ie(wiphy, reg_request);
 		break;
 	default:
-		WARN(1, "invalid initiator %d\n", reg_request->initiator);
+		WARN(1, "invalid initiator %d\n", initiator);
 		goto out_free;
 	}
 
@@ -2758,7 +2738,7 @@ static void reg_process_hint(struct regulatory_request *reg_request)
 	 */
 	if (treatment == REG_REQ_ALREADY_SET && wiphy &&
 	    wiphy->regulatory_flags & REGULATORY_STRICT_REG) {
-		wiphy_update_regulatory(wiphy, reg_request->initiator);
+		wiphy_update_regulatory(wiphy, initiator);
 		wiphy_all_share_dfs_chan_state(wiphy);
 		reg_check_channels();
 	}
@@ -2769,24 +2749,19 @@ out_free:
 	reg_free_request(reg_request);
 }
 
-static bool reg_only_self_managed_wiphys(void)
+static void notify_self_managed_wiphys(struct regulatory_request *request)
 {
 	struct cfg80211_registered_device *rdev;
 	struct wiphy *wiphy;
-	bool self_managed_found = false;
-
-	ASSERT_RTNL();
 
 	list_for_each_entry(rdev, &cfg80211_rdev_list, list) {
 		wiphy = &rdev->wiphy;
-		if (wiphy->regulatory_flags & REGULATORY_WIPHY_SELF_MANAGED)
-			self_managed_found = true;
-		else
-			return false;
+		if (wiphy->regulatory_flags & REGULATORY_WIPHY_SELF_MANAGED &&
+		    request->initiator == NL80211_REGDOM_SET_BY_USER &&
+		    request->user_reg_hint_type ==
+				NL80211_USER_REG_HINT_CELL_BASE)
+			reg_call_notifier(wiphy, request);
 	}
-
-	/* make sure at least one self-managed wiphy exists */
-	return self_managed_found;
 }
 
 /*
@@ -2820,10 +2795,7 @@ static void reg_process_pending_hints(void)
 
 	spin_unlock(&reg_requests_lock);
 
-	if (reg_only_self_managed_wiphys()) {
-		reg_free_request(reg_request);
-		return;
-	}
+	notify_self_managed_wiphys(reg_request);
 
 	reg_process_hint(reg_request);
 
@@ -2935,6 +2907,7 @@ static int regulatory_hint_core(const char *alpha2)
 	request->alpha2[0] = alpha2[0];
 	request->alpha2[1] = alpha2[1];
 	request->initiator = NL80211_REGDOM_SET_BY_CORE;
+	request->wiphy_idx = WIPHY_IDX_INVALID;
 
 	queue_regulatory_request(request);
 
@@ -3384,7 +3357,7 @@ bool reg_supported_dfs_region(enum nl80211_dfs_regions dfs_region)
 	case NL80211_DFS_JP:
 		return true;
 	default:
-		pr_debug("Ignoring uknown DFS master region: %d\n", dfs_region);
+		pr_debug("Ignoring unknown DFS master region: %d\n", dfs_region);
 		return false;
 	}
 }
@@ -3699,17 +3672,26 @@ EXPORT_SYMBOL(regulatory_set_wiphy_regd_sync_rtnl);
 
 void wiphy_regulatory_register(struct wiphy *wiphy)
 {
-	struct regulatory_request *lr;
+	struct regulatory_request *lr = get_last_request();
 
-	/* self-managed devices ignore external hints */
-	if (wiphy->regulatory_flags & REGULATORY_WIPHY_SELF_MANAGED)
+	/* self-managed devices ignore beacon hints and country IE */
+	if (wiphy->regulatory_flags & REGULATORY_WIPHY_SELF_MANAGED) {
 		wiphy->regulatory_flags |= REGULATORY_DISABLE_BEACON_HINTS |
 					   REGULATORY_COUNTRY_IE_IGNORE;
+
+		/*
+		 * The last request may have been received before this
+		 * registration call. Call the driver notifier if
+		 * initiator is USER and user type is CELL_BASE.
+		 */
+		if (lr->initiator == NL80211_REGDOM_SET_BY_USER &&
+		    lr->user_reg_hint_type == NL80211_USER_REG_HINT_CELL_BASE)
+			reg_call_notifier(wiphy, lr);
+	}
 
 	if (!reg_dev_ignore_cell_hint(wiphy))
 		reg_num_devs_support_basehint++;
 
-	lr = get_last_request();
 	wiphy_update_regulatory(wiphy, lr->initiator);
 	wiphy_all_share_dfs_chan_state(wiphy);
 }

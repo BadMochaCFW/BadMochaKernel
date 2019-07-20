@@ -541,7 +541,8 @@ __be32 nfsd4_set_nfs4_label(struct svc_rqst *rqstp, struct svc_fh *fhp,
 __be32 nfsd4_clone_file_range(struct file *src, u64 src_pos, struct file *dst,
 		u64 dst_pos, u64 count)
 {
-	return nfserrno(do_clone_file_range(src, src_pos, dst, dst_pos, count));
+	return nfserrno(vfs_clone_file_range(src, src_pos, dst, dst_pos,
+					     count));
 }
 
 ssize_t nfsd_copy_file_range(struct file *src, u64 src_pos, struct file *dst,
@@ -763,7 +764,7 @@ nfsd_open(struct svc_rqst *rqstp, struct svc_fh *fhp, umode_t type,
 		goto out_nfserr;
 	}
 
-	host_err = ima_file_check(file, may_flags, 0);
+	host_err = ima_file_check(file, may_flags);
 	if (host_err) {
 		fput(file);
 		goto out_nfserr;
@@ -1201,6 +1202,28 @@ nfsd_create_locked(struct svc_rqst *rqstp, struct svc_fh *fhp,
 		break;
 	case S_IFDIR:
 		host_err = vfs_mkdir(dirp, dchild, iap->ia_mode);
+		if (!host_err && unlikely(d_unhashed(dchild))) {
+			struct dentry *d;
+			d = lookup_one_len(dchild->d_name.name,
+					   dchild->d_parent,
+					   dchild->d_name.len);
+			if (IS_ERR(d)) {
+				host_err = PTR_ERR(d);
+				break;
+			}
+			if (unlikely(d_is_negative(d))) {
+				dput(d);
+				err = nfserr_serverfault;
+				goto out;
+			}
+			dput(resfhp->fh_dentry);
+			resfhp->fh_dentry = dget(d);
+			err = fh_update(resfhp);
+			dput(dchild);
+			dchild = d;
+			if (err)
+				goto out;
+		}
 		break;
 	case S_IFCHR:
 	case S_IFBLK:

@@ -271,7 +271,7 @@ static int string_set_value(struct bt_ctf_field *field, const char *string)
 				if (i > 0)
 					strncpy(buffer, string, i);
 			}
-			strncat(buffer + p, numstr, 4);
+			memcpy(buffer + p, numstr, 4);
 			p += 3;
 		}
 	}
@@ -310,8 +310,8 @@ static int add_tracepoint_field_value(struct ctf_writer *cw,
 	if (flags & FIELD_IS_DYNAMIC) {
 		unsigned long long tmp_val;
 
-		tmp_val = pevent_read_number(fmtf->event->pevent,
-				data + offset, len);
+		tmp_val = tep_read_number(fmtf->event->pevent,
+					  data + offset, len);
 		offset = tmp_val;
 		len = offset >> 16;
 		offset &= 0xffff;
@@ -353,7 +353,7 @@ static int add_tracepoint_field_value(struct ctf_writer *cw,
 		else {
 			unsigned long long value_int;
 
-			value_int = pevent_read_number(
+			value_int = tep_read_number(
 					fmtf->event->pevent,
 					data + offset + i * len, len);
 

@@ -452,8 +452,8 @@ struct mddev {
 
 	struct attribute_group		*to_remove;
 
-	struct bio_set			*bio_set;
-	struct bio_set			*sync_set; /* for sync operations like
+	struct bio_set			bio_set;
+	struct bio_set			sync_set; /* for sync operations like
 						   * metadata and bitmap writes
 						   */
 
@@ -463,6 +463,9 @@ struct mddev {
 	 */
 	struct bio *flush_bio;
 	atomic_t flush_pending;
+	ktime_t start_flush, last_flush; /* last_flush is when the last completed
+					  * flush was started.
+					  */
 	struct work_struct flush_work;
 	struct work_struct event_work;	/* used by dm to report failure event */
 	void (*sync_super)(struct mddev *mddev, struct md_rdev *rdev);
@@ -488,6 +491,7 @@ enum recovery_flags {
 	MD_RECOVERY_FROZEN,	/* User request to abort, and not restart, any action */
 	MD_RECOVERY_ERROR,	/* sync-action interrupted because io-error */
 	MD_RECOVERY_WAIT,	/* waiting for pers->start() to finish */
+	MD_RESYNCING_REMOTE,	/* remote node is running resync thread */
 };
 
 static inline int __must_check mddev_lock(struct mddev *mddev)

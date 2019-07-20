@@ -378,13 +378,15 @@ static int tegra_shared_plane_atomic_check(struct drm_plane *plane,
 static void tegra_shared_plane_atomic_disable(struct drm_plane *plane,
 					      struct drm_plane_state *old_state)
 {
-	struct tegra_dc *dc = to_tegra_dc(old_state->crtc);
 	struct tegra_plane *p = to_tegra_plane(plane);
+	struct tegra_dc *dc;
 	u32 value;
 
 	/* rien ne va plus */
 	if (!old_state || !old_state->crtc)
 		return;
+
+	dc = to_tegra_dc(old_state->crtc);
 
 	/*
 	 * XXX Legacy helpers seem to sometimes call ->atomic_disable() even
@@ -687,7 +689,7 @@ void tegra_display_hub_atomic_commit(struct drm_device *drm,
 	struct device *dev = hub->client.dev;
 	int err;
 
-	hub_state = tegra_display_hub_get_state(hub, state);
+	hub_state = to_tegra_display_hub_state(hub->base.state);
 
 	if (hub_state->clk) {
 		err = clk_set_rate(hub_state->clk, hub_state->rate);

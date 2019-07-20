@@ -415,7 +415,7 @@ static int validate_keys_sizes(struct cc_aead_ctx *ctx)
 /* This function prepers the user key so it can pass to the hmac processing
  * (copy to intenral buffer or hash in case of key longer than block
  */
-static int cc_get_plain_hmac_key(struct crypto_aead *tfm, const u8 *key,
+static int cc_get_plain_hmac_key(struct crypto_aead *tfm, const u8 *authkey,
 				 unsigned int keylen)
 {
 	dma_addr_t key_dma_addr = 0;
@@ -428,6 +428,7 @@ static int cc_get_plain_hmac_key(struct crypto_aead *tfm, const u8 *key,
 	unsigned int hashmode;
 	unsigned int idx = 0;
 	int rc = 0;
+	u8 *key = NULL;
 	struct cc_hw_desc desc[MAX_AEAD_SETKEY_SEQ];
 	dma_addr_t padded_authkey_dma_addr =
 		ctx->auth_state.hmac.padded_authkey_dma_addr;
@@ -446,11 +447,17 @@ static int cc_get_plain_hmac_key(struct crypto_aead *tfm, const u8 *key,
 	}
 
 	if (keylen != 0) {
+
+		key = kmemdup(authkey, keylen, GFP_KERNEL);
+		if (!key)
+			return -ENOMEM;
+
 		key_dma_addr = dma_map_single(dev, (void *)key, keylen,
 					      DMA_TO_DEVICE);
 		if (dma_mapping_error(dev, key_dma_addr)) {
 			dev_err(dev, "Mapping key va=0x%p len=%u for DMA failed\n",
 				key, keylen);
+			kzfree(key);
 			return -ENOMEM;
 		}
 		if (keylen > blocksize) {
@@ -533,6 +540,8 @@ static int cc_get_plain_hmac_key(struct crypto_aead *tfm, const u8 *key,
 	if (key_dma_addr)
 		dma_unmap_single(dev, key_dma_addr, keylen, DMA_TO_DEVICE);
 
+	kzfree(key);
+
 	return rc;
 }
 
@@ -540,13 +549,12 @@ static int cc_aead_setkey(struct crypto_aead *tfm, const u8 *key,
 			  unsigned int keylen)
 {
 	struct cc_aead_ctx *ctx = crypto_aead_ctx(tfm);
-	struct rtattr *rta = (struct rtattr *)key;
 	struct cc_crypto_req cc_req = {};
-	struct crypto_authenc_key_param *param;
 	struct cc_hw_desc desc[MAX_AEAD_SETKEY_SEQ];
-	int rc = -EINVAL;
 	unsigned int seq_len = 0;
 	struct device *dev = drvdata_to_dev(ctx->drvdata);
+	const u8 *enckey, *authkey;
+	int rc;
 
 	dev_dbg(dev, "Setting key in context @%p for %s. key=%p keylen=%u\n",
 		ctx, crypto_tfm_alg_name(crypto_aead_tfm(tfm)), key, keylen);
@@ -554,35 +562,33 @@ static int cc_aead_setkey(struct crypto_aead *tfm, const u8 *key,
 	/* STAT_PHASE_0: Init and sanity checks */
 
 	if (ctx->auth_mode != DRV_HASH_NULL) { /* authenc() alg. */
-		if (!RTA_OK(rta, keylen))
+		struct crypto_authenc_keys keys;
+
+		rc = crypto_authenc_extractkeys(&keys, key, keylen);
+		if (rc)
 			goto badkey;
-		if (rta->rta_type != CRYPTO_AUTHENC_KEYA_PARAM)
-			goto badkey;
-		if (RTA_PAYLOAD(rta) < sizeof(*param))
-			goto badkey;
-		param = RTA_DATA(rta);
-		ctx->enc_keylen = be32_to_cpu(param->enckeylen);
-		key += RTA_ALIGN(rta->rta_len);
-		keylen -= RTA_ALIGN(rta->rta_len);
-		if (keylen < ctx->enc_keylen)
-			goto badkey;
-		ctx->auth_keylen = keylen - ctx->enc_keylen;
+		enckey = keys.enckey;
+		authkey = keys.authkey;
+		ctx->enc_keylen = keys.enckeylen;
+		ctx->auth_keylen = keys.authkeylen;
 
 		if (ctx->cipher_mode == DRV_CIPHER_CTR) {
 			/* the nonce is stored in bytes at end of key */
+			rc = -EINVAL;
 			if (ctx->enc_keylen <
 			    (AES_MIN_KEY_SIZE + CTR_RFC3686_NONCE_SIZE))
 				goto badkey;
 			/* Copy nonce from last 4 bytes in CTR key to
 			 *  first 4 bytes in CTR IV
 			 */
-			memcpy(ctx->ctr_nonce, key + ctx->auth_keylen +
-			       ctx->enc_keylen - CTR_RFC3686_NONCE_SIZE,
-			       CTR_RFC3686_NONCE_SIZE);
+			memcpy(ctx->ctr_nonce, enckey + ctx->enc_keylen -
+			       CTR_RFC3686_NONCE_SIZE, CTR_RFC3686_NONCE_SIZE);
 			/* Set CTR key size */
 			ctx->enc_keylen -= CTR_RFC3686_NONCE_SIZE;
 		}
 	} else { /* non-authenc - has just one key */
+		enckey = key;
+		authkey = NULL;
 		ctx->enc_keylen = keylen;
 		ctx->auth_keylen = 0;
 	}
@@ -594,13 +600,14 @@ static int cc_aead_setkey(struct crypto_aead *tfm, const u8 *key,
 	/* STAT_PHASE_1: Copy key to ctx */
 
 	/* Get key material */
-	memcpy(ctx->enckey, key + ctx->auth_keylen, ctx->enc_keylen);
+	memcpy(ctx->enckey, enckey, ctx->enc_keylen);
 	if (ctx->enc_keylen == 24)
 		memset(ctx->enckey + 24, 0, CC_AES_KEY_SIZE_MAX - 24);
 	if (ctx->auth_mode == DRV_HASH_XCBC_MAC) {
-		memcpy(ctx->auth_state.xcbc.xcbc_keys, key, ctx->auth_keylen);
+		memcpy(ctx->auth_state.xcbc.xcbc_keys, authkey,
+		       ctx->auth_keylen);
 	} else if (ctx->auth_mode != DRV_HASH_NULL) { /* HMAC */
-		rc = cc_get_plain_hmac_key(tfm, key, ctx->auth_keylen);
+		rc = cc_get_plain_hmac_key(tfm, authkey, ctx->auth_keylen);
 		if (rc)
 			goto badkey;
 	}
@@ -2344,7 +2351,6 @@ static struct cc_alg_template aead_algs[] = {
 		.name = "authenc(hmac(sha1),cbc(aes))",
 		.driver_name = "authenc-hmac-sha1-cbc-aes-ccree",
 		.blocksize = AES_BLOCK_SIZE,
-		.type = CRYPTO_ALG_TYPE_AEAD,
 		.template_aead = {
 			.setkey = cc_aead_setkey,
 			.setauthsize = cc_aead_setauthsize,
@@ -2364,7 +2370,6 @@ static struct cc_alg_template aead_algs[] = {
 		.name = "authenc(hmac(sha1),cbc(des3_ede))",
 		.driver_name = "authenc-hmac-sha1-cbc-des3-ccree",
 		.blocksize = DES3_EDE_BLOCK_SIZE,
-		.type = CRYPTO_ALG_TYPE_AEAD,
 		.template_aead = {
 			.setkey = cc_aead_setkey,
 			.setauthsize = cc_aead_setauthsize,
@@ -2384,7 +2389,6 @@ static struct cc_alg_template aead_algs[] = {
 		.name = "authenc(hmac(sha256),cbc(aes))",
 		.driver_name = "authenc-hmac-sha256-cbc-aes-ccree",
 		.blocksize = AES_BLOCK_SIZE,
-		.type = CRYPTO_ALG_TYPE_AEAD,
 		.template_aead = {
 			.setkey = cc_aead_setkey,
 			.setauthsize = cc_aead_setauthsize,
@@ -2404,7 +2408,6 @@ static struct cc_alg_template aead_algs[] = {
 		.name = "authenc(hmac(sha256),cbc(des3_ede))",
 		.driver_name = "authenc-hmac-sha256-cbc-des3-ccree",
 		.blocksize = DES3_EDE_BLOCK_SIZE,
-		.type = CRYPTO_ALG_TYPE_AEAD,
 		.template_aead = {
 			.setkey = cc_aead_setkey,
 			.setauthsize = cc_aead_setauthsize,
@@ -2424,7 +2427,6 @@ static struct cc_alg_template aead_algs[] = {
 		.name = "authenc(xcbc(aes),cbc(aes))",
 		.driver_name = "authenc-xcbc-aes-cbc-aes-ccree",
 		.blocksize = AES_BLOCK_SIZE,
-		.type = CRYPTO_ALG_TYPE_AEAD,
 		.template_aead = {
 			.setkey = cc_aead_setkey,
 			.setauthsize = cc_aead_setauthsize,
@@ -2444,7 +2446,6 @@ static struct cc_alg_template aead_algs[] = {
 		.name = "authenc(hmac(sha1),rfc3686(ctr(aes)))",
 		.driver_name = "authenc-hmac-sha1-rfc3686-ctr-aes-ccree",
 		.blocksize = 1,
-		.type = CRYPTO_ALG_TYPE_AEAD,
 		.template_aead = {
 			.setkey = cc_aead_setkey,
 			.setauthsize = cc_aead_setauthsize,
@@ -2464,7 +2465,6 @@ static struct cc_alg_template aead_algs[] = {
 		.name = "authenc(hmac(sha256),rfc3686(ctr(aes)))",
 		.driver_name = "authenc-hmac-sha256-rfc3686-ctr-aes-ccree",
 		.blocksize = 1,
-		.type = CRYPTO_ALG_TYPE_AEAD,
 		.template_aead = {
 			.setkey = cc_aead_setkey,
 			.setauthsize = cc_aead_setauthsize,
@@ -2484,7 +2484,6 @@ static struct cc_alg_template aead_algs[] = {
 		.name = "authenc(xcbc(aes),rfc3686(ctr(aes)))",
 		.driver_name = "authenc-xcbc-aes-rfc3686-ctr-aes-ccree",
 		.blocksize = 1,
-		.type = CRYPTO_ALG_TYPE_AEAD,
 		.template_aead = {
 			.setkey = cc_aead_setkey,
 			.setauthsize = cc_aead_setauthsize,
@@ -2504,7 +2503,6 @@ static struct cc_alg_template aead_algs[] = {
 		.name = "ccm(aes)",
 		.driver_name = "ccm-aes-ccree",
 		.blocksize = 1,
-		.type = CRYPTO_ALG_TYPE_AEAD,
 		.template_aead = {
 			.setkey = cc_aead_setkey,
 			.setauthsize = cc_ccm_setauthsize,
@@ -2524,7 +2522,6 @@ static struct cc_alg_template aead_algs[] = {
 		.name = "rfc4309(ccm(aes))",
 		.driver_name = "rfc4309-ccm-aes-ccree",
 		.blocksize = 1,
-		.type = CRYPTO_ALG_TYPE_AEAD,
 		.template_aead = {
 			.setkey = cc_rfc4309_ccm_setkey,
 			.setauthsize = cc_rfc4309_ccm_setauthsize,
@@ -2544,7 +2541,6 @@ static struct cc_alg_template aead_algs[] = {
 		.name = "gcm(aes)",
 		.driver_name = "gcm-aes-ccree",
 		.blocksize = 1,
-		.type = CRYPTO_ALG_TYPE_AEAD,
 		.template_aead = {
 			.setkey = cc_aead_setkey,
 			.setauthsize = cc_gcm_setauthsize,
@@ -2564,7 +2560,6 @@ static struct cc_alg_template aead_algs[] = {
 		.name = "rfc4106(gcm(aes))",
 		.driver_name = "rfc4106-gcm-aes-ccree",
 		.blocksize = 1,
-		.type = CRYPTO_ALG_TYPE_AEAD,
 		.template_aead = {
 			.setkey = cc_rfc4106_gcm_setkey,
 			.setauthsize = cc_rfc4106_gcm_setauthsize,
@@ -2584,7 +2579,6 @@ static struct cc_alg_template aead_algs[] = {
 		.name = "rfc4543(gcm(aes))",
 		.driver_name = "rfc4543-gcm-aes-ccree",
 		.blocksize = 1,
-		.type = CRYPTO_ALG_TYPE_AEAD,
 		.template_aead = {
 			.setkey = cc_rfc4543_gcm_setkey,
 			.setauthsize = cc_rfc4543_gcm_setauthsize,
@@ -2621,8 +2615,7 @@ static struct cc_crypto_alg *cc_create_aead_alg(struct cc_alg_template *tmpl,
 	alg->base.cra_priority = CC_CRA_PRIO;
 
 	alg->base.cra_ctxsize = sizeof(struct cc_aead_ctx);
-	alg->base.cra_flags = CRYPTO_ALG_ASYNC | CRYPTO_ALG_KERN_DRIVER_ONLY |
-			 tmpl->type;
+	alg->base.cra_flags = CRYPTO_ALG_ASYNC | CRYPTO_ALG_KERN_DRIVER_ONLY;
 	alg->init = cc_aead_init;
 	alg->exit = cc_aead_exit;
 

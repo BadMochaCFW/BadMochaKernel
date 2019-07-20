@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0+
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * comedidev.h
  * header file for kernel-only structures, variables, and constants
@@ -542,8 +542,8 @@ struct comedi_device {
 
 	const char *board_name;
 	const void *board_ptr;
-	bool attached:1;
-	bool ioenabled:1;
+	unsigned int attached:1;
+	unsigned int ioenabled:1;
 	spinlock_t spinlock;	/* generic spin-lock for low-level driver */
 	struct mutex mutex;	/* generic mutex for COMEDI core */
 	struct rw_semaphore attach_lock;
@@ -987,6 +987,8 @@ int comedi_dio_insn_config(struct comedi_device *dev,
 			   unsigned int mask);
 unsigned int comedi_dio_update_state(struct comedi_subdevice *s,
 				     unsigned int *data);
+unsigned int comedi_bytes_per_scan_cmd(struct comedi_subdevice *s,
+				       struct comedi_cmd *cmd);
 unsigned int comedi_bytes_per_scan(struct comedi_subdevice *s);
 unsigned int comedi_nscans_left(struct comedi_subdevice *s,
 				unsigned int nscans);
