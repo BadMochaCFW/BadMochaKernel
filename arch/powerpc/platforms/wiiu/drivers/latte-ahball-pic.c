@@ -35,27 +35,52 @@ static DEFINE_PER_CPU(lt_pic_t *, lt_pic_cpu);
 
 static void latte_ahball_pic_mask_and_ack(struct irq_data *d) {
 	lt_pic_t *pic = *this_cpu_ptr(&lt_pic_cpu);
-	u32 mask = 1 << irqd_to_hwirq(d);
-	out_be32(&pic->ahball_icr, mask);
-	clrbits32(&pic->ahball_imr, mask);
+	u32 irq = irqd_to_hwirq(d);
+	if (irq < LATTE_AHBALL_NR_IRQS) {
+		u32 mask = 1 << irq;
+		out_be32(&pic->ahball_icr, mask);
+		clrbits32(&pic->ahball_imr, mask);
+	} else {
+		u32 mask = 1 << (irq - 32);
+		out_be32(&pic->ahblt_icr, mask);
+		clrbits32(&pic->ahblt_imr, mask);
+	}
 }
 
 static void latte_ahball_pic_ack(struct irq_data *d) {
 	lt_pic_t *pic = *this_cpu_ptr(&lt_pic_cpu);
-	u32 mask = 1 << irqd_to_hwirq(d);
-	out_be32(&pic->ahball_icr, mask);
+	u32 irq = irqd_to_hwirq(d);
+	if (irq < LATTE_AHBALL_NR_IRQS) {
+		u32 mask = 1 << irq;
+		out_be32(&pic->ahball_icr, mask);
+	} else {
+		u32 mask = 1 << (irq - 32);
+		out_be32(&pic->ahblt_icr, mask);
+	}
 }
 
 static void latte_ahball_pic_mask(struct irq_data *d) {
 	lt_pic_t *pic = *this_cpu_ptr(&lt_pic_cpu);
-	u32 mask = 1 << irqd_to_hwirq(d);
-	clrbits32(&pic->ahball_imr, mask);
+	u32 irq = irqd_to_hwirq(d);
+	if (irq < LATTE_AHBALL_NR_IRQS) {
+		u32 mask = 1 << irq;
+		clrbits32(&pic->ahball_imr, mask);
+	} else {
+		u32 mask = 1 << (irq - 32);
+		clrbits32(&pic->ahblt_imr, mask);
+	}
 }
 
 static void latte_ahball_pic_unmask(struct irq_data *d) {
 	lt_pic_t *pic = *this_cpu_ptr(&lt_pic_cpu);
-	u32 mask = 1 << irqd_to_hwirq(d);
-	setbits32(&pic->ahball_imr, mask);
+	u32 irq = irqd_to_hwirq(d);
+	if (irq < LATTE_AHBALL_NR_IRQS) {
+		u32 mask = 1 << irq;
+		setbits32(&pic->ahball_imr, mask);
+	} else {
+		u32 mask = 1 << (irq - 32);
+		setbits32(&pic->ahblt_imr, mask);
+	}
 }
 
 static struct irq_chip latte_ahball_pic = {
@@ -71,7 +96,7 @@ static struct irq_chip latte_ahball_pic = {
 
 static int latte_ahball_pic_match(struct irq_domain *h, struct device_node *node, enum irq_domain_bus_token bus_token) {
 	if (h->fwnode == &node->fwnode) {
-		pr_debug("%s IRQ matches with this driver\n", node->name);
+		pr_info("%s IRQ matches with this driver\n", node->name);
 		return 1;
 	}
 	return 0;
@@ -110,8 +135,13 @@ unsigned int latte_ahball_pic_get_irq(struct irq_domain *h) {
 
 	irq_status = in_be32(&pic->ahball_icr) & in_be32(&pic->ahball_imr);
 
-	if (irq_status == 0)
-		return 0;	//No IRQs pending
+	if (irq_status == 0) {
+		irq_status = in_be32(&pic->ahblt_icr) & in_be32(&pic->ahblt_imr);
+		if (irq_status == 0) return 0; //No IRQs pending
+		
+		irq = __ffs(irq_status) + LATTE_AHBALL_NR_IRQS;
+		return irq_linear_revmap(h, irq);
+	}
 
 	//Find the first IRQ
 	irq = __ffs(irq_status);
@@ -177,7 +207,7 @@ void __init latte_ahball_pic_init(void) {
 	}
 
 	//Register PIC
-	host = irq_domain_add_linear(np, LATTE_AHBALL_NR_IRQS, &latte_ahball_pic_ops, NULL);
+	host = irq_domain_add_linear(np, LATTE_AHBALL_NR_IRQS + LATTE_AHBLT_NR_IRQS, &latte_ahball_pic_ops, NULL);
 	BUG_ON(!host);
 
 	//Setup cascade interrupt

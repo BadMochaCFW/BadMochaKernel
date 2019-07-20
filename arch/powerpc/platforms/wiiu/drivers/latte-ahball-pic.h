@@ -23,6 +23,7 @@ typedef struct __attribute__((packed)) {
 } lt_pic_t;
 
 #define LATTE_AHBALL_NR_IRQS    32
+#define LATTE_AHBLT_NR_IRQS     32
 
 void latte_ahball_pic_init(void);
 
