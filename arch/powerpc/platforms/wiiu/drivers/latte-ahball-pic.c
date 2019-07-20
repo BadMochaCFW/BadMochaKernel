@@ -96,7 +96,7 @@ static struct irq_chip latte_ahball_pic = {
 
 static int latte_ahball_pic_match(struct irq_domain *h, struct device_node *node, enum irq_domain_bus_token bus_token) {
 	if (h->fwnode == &node->fwnode) {
-		pr_info("%s IRQ matches with this driver\n", node->name);
+		pr_debug("%s IRQ matches with this driver\n", node->name);
 		return 1;
 	}
 	return 0;
