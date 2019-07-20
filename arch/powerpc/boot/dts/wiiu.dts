@@ -123,6 +123,14 @@
             big-endian-regs;
         };
 
+        ehci_2: usb@0d140000 {
+            compatible = "nintendo,ehci-wiiu", "usb-ehci";
+            reg = <0x0d140000 0x100>;
+            interrupts = <36>;
+            interrupt-parent = <&latte_ahball_pic>;
+            big-endian-regs;
+        };
+
         latte_ipc: ipc@0d800000 {
             compatible = "nintendo,latte-ipc";
             reg = <0x0d800000 0x10>;
