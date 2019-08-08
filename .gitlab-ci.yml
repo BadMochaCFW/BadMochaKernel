@@ -6,7 +6,7 @@ linux-build:
     script:
         - make wiiu_defconfig $LINUXMK
         - make $LINUXMK
-        - cp arch/powerpc/boot/dtbImage.wiiu dtbImage
+        - cp arch/powerpc/boot/dtbImage.wiiu dtbImage.wiiu
     artifacts:
         paths:
             - dtbImage.wiiu
