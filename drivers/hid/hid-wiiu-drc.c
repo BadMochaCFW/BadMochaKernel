@@ -1,0 +1,369 @@
+/*
+ * HID driver for Nintendo Wii U GamePad, connected via console-internal DRH
+ *
+ * Copyright (C) 2019 Ash Logan <ash@heyquark.com>
+ * Copyright (C) 2013 Mema Hacking
+ *
+ * Based on the excellent work at http://libdrc.org/docs/re/sc-input.html and
+ * https://bitbucket.org/memahaxx/libdrc/src/master/src/input-receiver.cpp .
+ * libdrc code is licensed under BSD 2-Clause.
+ * Driver based on hid-udraw-ps3.c.
+ *
+ * TODO: maybe try and get their blessing before upstreaming.
+ *
+ * This software is licensed under the terms of the GNU General Public
+ * License version 2, as published by the Free Software Foundation, and
+ * may be copied, distributed, and modified under those terms.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+#include <linux/device.h>
+#include <linux/hid.h>
+#include <linux/module.h>
+#include "hid-ids.h"
+
+MODULE_AUTHOR("Ash Logan <ash@heyquark.com>");
+MODULE_DESCRIPTION("Wii U GamePad driver [DRH]");
+MODULE_LICENSE("GPL");
+
+/*
+ * The device is setup with multiple input devices:
+ * - the touch area which works as a touchpad
+ * - a joypad with a d-pad, and 7 buttons
+ * - an accelerometer device
+ */
+
+enum {
+	AXIS_X,
+	AXIS_Y,
+	AXIS_Z
+};
+
+#define DEVICE_NAME "Nintendo Wii U GamePad [DRH]"
+/* resolution in pixels */
+#define RES_X 854
+#define RES_Y 480
+/* display/touch size in mm */
+#define WIDTH  138
+#define HEIGHT 79
+#define STICK_MIN 900
+#define STICK_MAX 3200
+#define NUM_STICK_AXES 4
+#define NUM_TOUCH_POINTS 10
+
+//#define PRESSURE_OFFSET 113
+//#define MAX_PRESSURE (255 - PRESSURE_OFFSET)
+
+struct drc {
+	struct input_dev *joy_input_dev;
+	struct input_dev *touch_input_dev;
+	struct input_dev *accel_input_dev;
+	struct hid_device *hdev;
+};
+
+enum ButtonMask {
+	kBtnSync = 0x1,
+	kBtnHome = 0x2,
+	kBtnMinus = 0x4,
+	kBtnPlus = 0x8,
+	kBtnR = 0x10,
+	kBtnL = 0x20,
+	kBtnZR = 0x40,
+	kBtnZL = 0x80,
+	kBtnDown = 0x100,
+	kBtnUp = 0x200,
+	kBtnRight = 0x400,
+	kBtnLeft = 0x800,
+	kBtnY = 0x1000,
+	kBtnX = 0x2000,
+	kBtnB = 0x4000,
+	kBtnA = 0x8000,
+
+	kBtnTV = 0x200000,
+	kBtnR3 = 0x400000,
+	kBtnL3 = 0x800000,
+} buttons;
+
+/*static int clamp_accel(int axis, int offset)
+{
+	axis = clamp(axis,
+			accel_limits[offset].min,
+			accel_limits[offset].max);
+	axis = (axis - accel_limits[offset].min) /
+			((accel_limits[offset].max -
+			  accel_limits[offset].min) * 0xFF);
+	return axis;
+}*/
+
+static int drc_raw_event(struct hid_device *hdev, struct hid_report *report,
+	 u8 *data, int len)
+{
+	struct drc *drc = hid_get_drvdata(hdev);
+	int touch;
+	int x, y, pressure, i, base;
+	u32 buttons;
+
+	if (len != 128)
+		return 0;
+
+	buttons = (data[80] << 16) | (data[2] << 8) | data[3];
+	/* joypad */
+	input_report_key(drc->joy_input_dev, BTN_DPAD_RIGHT, !!(buttons & kBtnRight));
+	input_report_key(drc->joy_input_dev, BTN_DPAD_DOWN, !!(buttons & kBtnDown));
+	input_report_key(drc->joy_input_dev, BTN_DPAD_LEFT, !!(buttons & kBtnLeft));
+	input_report_key(drc->joy_input_dev, BTN_DPAD_UP, !!(buttons & kBtnUp));
+
+	input_report_key(drc->joy_input_dev, BTN_EAST, !!(buttons & kBtnA));
+	input_report_key(drc->joy_input_dev, BTN_SOUTH, !!(buttons & kBtnB));
+	input_report_key(drc->joy_input_dev, BTN_NORTH, !!(buttons & kBtnX));
+	input_report_key(drc->joy_input_dev, BTN_WEST, !!(buttons & kBtnY));
+
+	input_report_key(drc->joy_input_dev, BTN_TL, !!(buttons & kBtnL));
+	input_report_key(drc->joy_input_dev, BTN_TL2, !!(buttons & kBtnZL));
+	input_report_key(drc->joy_input_dev, BTN_TR, !!(buttons & kBtnR));
+	input_report_key(drc->joy_input_dev, BTN_TR2, !!(buttons & kBtnZR));
+
+	input_report_key(drc->joy_input_dev, BTN_THUMBL, !!(buttons & kBtnL3));
+	input_report_key(drc->joy_input_dev, BTN_THUMBR, !!(buttons & kBtnR3));
+
+	input_report_key(drc->joy_input_dev, BTN_SELECT, !!(buttons & kBtnMinus));
+	input_report_key(drc->joy_input_dev, BTN_START, !!(buttons & kBtnPlus));
+	input_report_key(drc->joy_input_dev, BTN_MODE, !!(buttons & kBtnHome));
+
+	for (i = 0; i < NUM_STICK_AXES; i++) {
+		s16 val = (data[7 + 2*i] << 8) | data[6 + 2*i];
+		/* clamp */
+		if (val < STICK_MIN) val = STICK_MIN;
+		if (val > STICK_MAX) val = STICK_MAX;
+
+		switch (i) {
+			case 0: input_report_abs(drc->joy_input_dev, ABS_X, val); break;
+			case 1: input_report_abs(drc->joy_input_dev, ABS_Y, val); break;
+			case 2: input_report_abs(drc->joy_input_dev, ABS_RX, val); break;
+			case 3: input_report_abs(drc->joy_input_dev, ABS_RY, val); break;
+			default: break;
+		}
+	}
+
+	input_sync(drc->joy_input_dev);
+
+	/* Average touch points for ACCURACY */
+	x = y = 0;
+	for (i = 0; i < NUM_TOUCH_POINTS; i++) {
+		base = 36 + 4 * i;
+
+		x += ((data[base + 1] & 0xF) << 8) | data[base];
+		y += ((data[base + 3] & 0xF) << 8) | data[base + 2];
+	}
+	x /= NUM_TOUCH_POINTS;
+	y /= NUM_TOUCH_POINTS;
+
+	/*This doesn't work at the moment*/
+	/*pressure = 0;
+	pressure |= ((data[37] >> 4) & 7) << 0;
+	pressure |= ((data[39] >> 4) & 7) << 3;
+	pressure |= ((data[41] >> 4) & 7) << 6;
+	pressure |= ((data[43] >> 4) & 7) << 9;
+
+	if (pressure != 0) {
+		input_report_key(drc->touch_input_dev, BTN_TOUCH, 1);
+		input_report_key(drc->touch_input_dev, BTN_TOOL_FINGER, 1);
+
+		input_report_abs(drc->touch_input_dev, ABS_X, x);
+		input_report_abs(drc->touch_input_dev, ABS_Y, y);
+	} else {
+		input_report_key(drc->touch_input_dev, BTN_TOUCH, 0);
+		input_report_key(drc->touch_input_dev, BTN_TOOL_FINGER, 0);
+	}
+	input_sync(drc->touch_input_dev); */
+
+	/* let hidraw and hiddev handle the report */
+	return 0;
+}
+
+static int drc_open(struct input_dev *dev)
+{
+	struct drc *drc = input_get_drvdata(dev);
+
+	return hid_hw_open(drc->hdev);
+}
+
+static void drc_close(struct input_dev *dev)
+{
+	struct drc *drc = input_get_drvdata(dev);
+
+	hid_hw_close(drc->hdev);
+}
+
+static struct input_dev *allocate_and_setup(struct hid_device *hdev,
+		const char *name)
+{
+	struct input_dev *input_dev;
+
+	input_dev = devm_input_allocate_device(&hdev->dev);
+	if (!input_dev)
+		return NULL;
+
+	input_dev->name = name;
+	input_dev->phys = hdev->phys;
+	input_dev->dev.parent = &hdev->dev;
+	input_dev->open = drc_open;
+	input_dev->close = drc_close;
+	input_dev->uniq = hdev->uniq;
+	input_dev->id.bustype = hdev->bus;
+	input_dev->id.vendor  = hdev->vendor;
+	input_dev->id.product = hdev->product;
+	input_dev->id.version = hdev->version;
+	input_set_drvdata(input_dev, hid_get_drvdata(hdev));
+
+	return input_dev;
+}
+
+static bool drc_setup_touch(struct drc *drc,
+		struct hid_device *hdev)
+{
+	struct input_dev *input_dev;
+
+	input_dev = allocate_and_setup(hdev, DEVICE_NAME " Touch");
+	if (!input_dev)
+		return false;
+
+	input_dev->evbit[0] = BIT(EV_ABS) | BIT(EV_KEY);
+
+	input_set_abs_params(input_dev, ABS_X, 0, RES_X, 1, 0);
+	input_abs_set_res(input_dev, ABS_X, RES_X / WIDTH);
+	input_set_abs_params(input_dev, ABS_Y, 0, RES_Y, 1, 0);
+	input_abs_set_res(input_dev, ABS_Y, RES_Y / HEIGHT);
+
+	set_bit(BTN_TOUCH, input_dev->keybit);
+	set_bit(BTN_TOOL_FINGER, input_dev->keybit);
+
+	set_bit(INPUT_PROP_POINTER, input_dev->propbit);
+
+	drc->touch_input_dev = input_dev;
+
+	return true;
+}
+
+/*static bool drc_setup_accel(struct drc *drc,
+		struct hid_device *hdev)
+{
+	struct input_dev *input_dev;
+
+	input_dev = allocate_and_setup(hdev, DEVICE_NAME " Accelerometer");
+	if (!input_dev)
+		return false;
+
+	input_dev->evbit[0] = BIT(EV_ABS); */
+
+	/* 1G accel is reported as ~256, so clamp to 2G */
+/*	input_set_abs_params(input_dev, ABS_X, -512, 512, 0, 0);
+	input_set_abs_params(input_dev, ABS_Y, -512, 512, 0, 0);
+	input_set_abs_params(input_dev, ABS_Z, -512, 512, 0, 0);
+
+	set_bit(INPUT_PROP_ACCELEROMETER, input_dev->propbit);
+
+	drc->accel_input_dev = input_dev;
+
+	return true;
+}*/
+
+static bool drc_setup_joypad(struct drc *drc,
+		struct hid_device *hdev)
+{
+	struct input_dev *input_dev;
+
+	input_dev = allocate_and_setup(hdev, DEVICE_NAME " Joypad");
+	if (!input_dev)
+		return false;
+
+	input_dev->evbit[0] = BIT(EV_KEY) | BIT(EV_ABS);
+
+	set_bit(BTN_DPAD_RIGHT, input_dev->keybit);
+	set_bit(BTN_DPAD_DOWN, input_dev->keybit);
+	set_bit(BTN_DPAD_LEFT, input_dev->keybit);
+	set_bit(BTN_DPAD_UP, input_dev->keybit);
+	set_bit(BTN_EAST, input_dev->keybit);
+	set_bit(BTN_SOUTH, input_dev->keybit);
+	set_bit(BTN_NORTH, input_dev->keybit);
+	set_bit(BTN_WEST, input_dev->keybit);
+	set_bit(BTN_TL, input_dev->keybit);
+	set_bit(BTN_TL2, input_dev->keybit);
+	set_bit(BTN_TR, input_dev->keybit);
+	set_bit(BTN_TR2, input_dev->keybit);
+	set_bit(BTN_THUMBL, input_dev->keybit);
+	set_bit(BTN_THUMBR, input_dev->keybit);
+	set_bit(BTN_SELECT, input_dev->keybit);
+	set_bit(BTN_START, input_dev->keybit);
+	set_bit(BTN_MODE, input_dev->keybit);
+
+	input_set_abs_params(input_dev, ABS_X, STICK_MIN, STICK_MAX, 0, 0);
+	input_set_abs_params(input_dev, ABS_Y, STICK_MIN, STICK_MAX, 0, 0);
+	input_set_abs_params(input_dev, ABS_RX, STICK_MIN, STICK_MAX, 0, 0);
+	input_set_abs_params(input_dev, ABS_RY, STICK_MIN, STICK_MAX, 0, 0);
+
+	drc->joy_input_dev = input_dev;
+
+	return true;
+}
+
+static int drc_probe(struct hid_device *hdev, const struct hid_device_id *id)
+{
+	struct drc *drc;
+	int ret;
+
+	drc = devm_kzalloc(&hdev->dev, sizeof(struct drc), GFP_KERNEL);
+	if (!drc)
+		return -ENOMEM;
+
+	drc->hdev = hdev;
+
+	hid_set_drvdata(hdev, drc);
+
+	ret = hid_parse(hdev);
+	if (ret) {
+		hid_err(hdev, "parse failed\n");
+		return ret;
+	}
+
+	if (!drc_setup_joypad(drc, hdev) ||
+	    !drc_setup_touch(drc, hdev) /*||
+	    !drc_setup_accel(drc, hdev)*/) {
+		hid_err(hdev, "could not allocate interfaces\n");
+		return -ENOMEM;
+	}
+
+	ret = input_register_device(drc->joy_input_dev) ||
+		input_register_device(drc->touch_input_dev) /*||
+		input_register_device(drc->accel_input_dev)*/;
+	if (ret) {
+		hid_err(hdev, "failed to register interfaces\n");
+		return ret;
+	}
+
+	ret = hid_hw_start(hdev, HID_CONNECT_HIDRAW | HID_CONNECT_DRIVER);
+	if (ret) {
+		hid_err(hdev, "hw start failed\n");
+		return ret;
+	}
+
+	return 0;
+}
+
+static const struct hid_device_id drc_devices[] = {
+	{ HID_USB_DEVICE(USB_VENDOR_ID_NINTENDO, USB_DEVICE_ID_NINTENDO_WIIUDRH) },
+	{ }
+};
+MODULE_DEVICE_TABLE(hid, drc_devices);
+
+static struct hid_driver drc_driver = {
+	.name = "hid-wiiu-drc",
+	.id_table = drc_devices,
+	.raw_event = drc_raw_event,
+	.probe = drc_probe,
+};
+module_hid_driver(drc_driver);
