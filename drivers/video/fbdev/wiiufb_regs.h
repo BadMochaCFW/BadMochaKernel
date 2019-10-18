@@ -20,9 +20,9 @@
 
 #define setreg(addr, reg, val) writereg(addr, (readreg(addr) & ~reg) | (val & reg))
 
-#define DGRPH_ENABLE 0x0100
+#define DGRPH_ENABLE 0x0000
     #define DGRPH_ENABLE_REG 0x1
-#define DGRPH_CONTROL 0x0104
+#define DGRPH_CONTROL 0x0004
     #define DGRPH_DEPTH 0x3
         #define DGRPH_DEPTH_8BPP 0x0
         #define DGRPH_DEPTH_16BPP 0x1
@@ -54,8 +54,8 @@
         #define DGRPH_ARRAY_LINEAR_ALIGNED 0x100000
         #define DGRPH_ARRAY_1D_TILES_THIN1 0x200000
         //todo: rest of these array modes
-		
-#define DGRPH_SWAP_CNTL 0x010C
+
+#define DGRPH_SWAP_CNTL 0x000C
 	#define DGRPH_ENDIAN_SWAP 0x3
 		#define DGRPH_ENDIAN_SWAP_NONE 0x0
 		#define DGRPH_ENDIAN_SWAP_16 0x1
@@ -71,11 +71,29 @@
 		#define DGRPH_ALPHA_CROSSBAR_ALPHA 0x000
 	// todo: other values for crossbars
 
-#define DGRPH_PRIMARY_SURFACE_ADDRESS 0x0110
+#define DGRPH_PRIMARY_SURFACE_ADDRESS 0x0010
     #define DGRPH_PRIMARY_DFQ_ENABLE 0x1
         #define DGRPH_PRIMARY_DFQ_OFF 0x0
         #define DGRPH_PRIMARY_DFQ_ON 0x1
     #define DGRPH_PRIMARY_SURFACE_ADDR 0xFFFFFF00
 
-#define DGRPH_PITCH 0x0120
+#define DGRPH_PITCH 0x0020
     #define DGRPH_PITCH_VAL 0x3FFF
+
+#define DGRPH_SURFACE_OFFSET_X 0x0024
+    #define DGRPH_SURFACE_OFFSET_X_VAL 0x1F00
+
+#define DGRPH_SURFACE_OFFSET_Y 0x0028
+    #define DGRPH_SURFACE_OFFSET_Y_VAL 0x1FFE
+
+#define DGRPH_X_START 0x002C
+    #define DGRPH_X_START_VAL 0x1FFF
+
+#define DGRPH_Y_START 0x0030
+    #define DGRPH_Y_START_VAL 0x1FFF
+
+#define DGRPH_X_END 0x0034
+    #define DGRPH_X_END_VAL 0x3FFF
+
+#define DGRPH_Y_END 0x0038
+    #define DGRPH_Y_END_VAL 0x3FFF

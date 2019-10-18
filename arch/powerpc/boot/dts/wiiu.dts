@@ -23,6 +23,13 @@
         #address-cells = <1>;
         #size-cells = <1>;
         ranges;
+
+        framebuffer: vram@0x01C00000 {
+            compatible = "shared-dma-pool";
+            no-map;
+
+            reg = <0x01C00000 0x00400000>;
+        };
     };
 
     cpus {
@@ -72,21 +79,29 @@
             reg = <0x0c000078 0x18>;
         };
 
-        gx2fb0: gx20@0c200000 {
+        fb_0: fb@0c206000 {
             compatible = "nintendo,wiiufb";
-            reg = <0x0c206000 0x1000>;
+            reg = <0x0c206100 0x800>;
+            memory-region = <&framebuffer>;
 
             default-width = <1280>;
             default-height = <720>;
         };
 
-        gx2fb1: gx21@0c200000 {
+        fb_1: fb1@0c207000 {
             compatible = "nintendo,wiiufb";
-            reg = <0x0c207000 0x1000>;
+            reg = <0x0c206900 0x800>;
+            memory-region = <&framebuffer>;
 
             default-width = <854>;
             default-height = <480>;
         };
+
+        /*gpu7@0c200000 {
+            compatible = "nintendo,gpu7";
+            #address-cells = <1>;
+            #size-cells = <1>;
+        };*/ //One day
 
         sdcard_0: sdhci@0d070000 {
             compatible = "nintendo,wiiu-sdhci";
@@ -105,12 +120,12 @@
         gpio: gpio@0d8000c0 {
             #gpio-cells = <2>;
             compatible = "nintendo,latte-gpio", "nintendo,hollywood-gpio";
-            
+
             reg = <0x0d8000c0 0x40>;
             gpio-controller;
             /* TODO: we do have a few more gpios */
             ngpios = <24>;
-            
+
             gpio-line-names =
                 "POWER", "DWIFI", "FAN", "DC_DC",
                 "", "Esp10WorkAround", "", "",
@@ -128,11 +143,11 @@
         gpio2: gpio2@0d8000c0 {
             #gpio-cells = <2>;
             compatible = "nintendo,latte-gpio", "nintendo,hollywood-gpio";
-            
+
             reg = <0x0d800520 0x40>;
             gpio-controller;
             ngpios = <7>;
-            
+
             gpio-line-names =
                 "FANSPEED", "SMC_SCL", "SMC_SDA", "DC_DC2",
                 "AVE_INT", "", "AVE_RESET";
@@ -193,7 +208,7 @@
             interrupt-parent = <&latte_ahball_pic>;
             big-endian-regs;
         };
-        
+
         ohci_2_0: usb@0d150000 {
             compatible = "nintendo,ohci-wiiu";
             reg = <0x0d150000 0x100>;
@@ -232,7 +247,7 @@
     gpio-keys-polled {
         poll-interval = <50>;
         compatible = "gpio-keys-polled";
-        
+
         power {
             label = "Power Button";
             gpios = <&gpio 0 GPIO_ACTIVE_HIGH>;

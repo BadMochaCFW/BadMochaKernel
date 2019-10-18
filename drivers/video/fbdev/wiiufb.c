@@ -33,6 +33,7 @@
 #include <linux/of_device.h>
 #include <linux/of_platform.h>
 #include <linux/of_address.h>
+#include <linux/of_reserved_mem.h>
 #include <linux/io.h>
 #include <linux/slab.h>
 #include <linux/compat.h>
@@ -62,48 +63,121 @@ MODULE_PARM_DESC(leak_mmio, "oops");
  * Each pixel gets a word (32 bits) of memory, organized as RGBA8888
  */
 
-// 16 bit
-#define BYTES_PER_PIXEL	2
-#define BITS_PER_PIXEL	(BYTES_PER_PIXEL * 8)
-
-// RGB565
-#define OFFS_RED		11
-#define OFFS_GREEN		5
-#define OFFS_BLUE		0
-
 // Use 16 palettes
 #define MAX_PALETTES	16
 
-struct wiiufb_platform_data {
-	u32 width, height;         /* resolution of screen in pixels */
-};
-
-static struct fb_fix_screeninfo wiiu_fb_fix = {
-	.id =		"wiiufb",
-	.type =		FB_TYPE_PACKED_PIXELS,
-	.visual =	FB_VISUAL_TRUECOLOR,
-	.accel =	FB_ACCEL_NONE
-};
-
-static struct fb_var_screeninfo wiiu_fb_var = {
-	.bits_per_pixel =	BITS_PER_PIXEL,
-
-	.red =		{ OFFS_RED, 5, 0 },
-	.green =	{ OFFS_GREEN, 6, 0 },
-	.blue =		{ OFFS_BLUE, 5, 0 },
-	.transp =	{ 0, 0, 0 },
-
-	.activate =	FB_ACTIVATE_NOW
-};
-
 struct wiiufb_drvdata {
-	struct fb_info info;								/* FB driver info record */
 	void __iomem *regs;									/* virt. address of the control registers */
-	phys_addr_t	  regs_phys;
-	void         *fb_virt;								/* virt. address of the frame buffer */
-	dma_addr_t    fb_phys;								/* phys. address of the frame buffer */
+	dma_addr_t    screen_dma;							/* dma handle of the frame buffer */
 	u32 	      pseudo_palette[MAX_PALETTES];			/* Fake palette of 16 colors */
 };
+
+static int wiiufb_check_var(struct fb_var_screeninfo *var, struct fb_info *info) {
+	uint32_t line_length;
+
+	if (!var->xres)
+		var->xres = 1;
+	if (!var->yres)
+		var->yres = 1;
+	if (var->xres > var->xres_virtual)
+		var->xres_virtual = var->xres;
+	if (var->yres > var->yres_virtual)
+		var->yres_virtual = var->yres;
+	if (var->bits_per_pixel <= 16)
+		var->bits_per_pixel = 16;
+	else if (var->bits_per_pixel <= 32)
+		var->bits_per_pixel = 32;
+	else
+		return -EINVAL;
+
+	if (var->xres_virtual < var->xoffset + var->xres)
+		var->xres_virtual = var->xoffset + var->xres;
+	if (var->yres_virtual < var->yoffset + var->yres)
+		var->yres_virtual = var->yoffset + var->yres;
+
+	// Round up to nearest 32/0x20
+	// https://stackoverflow.com/a/9194117
+	var->xres_virtual = (var->xres_virtual + 0x20 - 1) & -0x20;
+
+	line_length =
+		var->xres_virtual *
+		(var->bits_per_pixel / 8);
+	//if (line_length * var->yres_virtual > ) return -ENOMEM;
+
+	if (var->bits_per_pixel == 16) {
+		//RGB565
+		var->red   = (struct fb_bitfield) { .offset = 11,  .length = 5, };
+		var->green = (struct fb_bitfield) { .offset = 5,  .length = 6, };
+		var->blue  = (struct fb_bitfield) { .offset = 0, .length = 5, };
+		var->transp= (struct fb_bitfield) { .offset = 0,  .length = 0, };
+	} else if (var->bits_per_pixel == 32) {
+		//ARGB8888
+		var->red   = (struct fb_bitfield) { .offset = 8,  .length = 8, };
+		var->green = (struct fb_bitfield) { .offset = 16, .length = 8, };
+		var->blue  = (struct fb_bitfield) { .offset = 24, .length = 8, };
+		var->transp= (struct fb_bitfield) { .offset = 0,  .length = 8, };
+	}
+	var->grayscale = 0;
+
+	return 0;
+}
+
+static int wiiufb_set_par(struct fb_info *info) {
+	struct wiiufb_drvdata *drvdata = (struct wiiufb_drvdata*)info->par;
+
+	writereg(DGRPH_ENABLE, 0);
+	writereg(DGRPH_CONTROL, 0);
+	writereg(DGRPH_PRIMARY_SURFACE_ADDRESS, 0);
+	writereg(DGRPH_PITCH, 0);
+
+	if (info->var.bits_per_pixel == 16) {
+		setreg(DGRPH_CONTROL, DGRPH_DEPTH, DGRPH_DEPTH_16BPP);
+		setreg(DGRPH_CONTROL, DGRPH_FORMAT, DGRPH_FORMAT_16BPP_RGB565);
+		setreg(DGRPH_SWAP_CNTL, DGRPH_ENDIAN_SWAP, DGRPH_ENDIAN_SWAP_16);
+	} else if (info->var.bits_per_pixel == 32) {
+		setreg(DGRPH_CONTROL, DGRPH_DEPTH, DGRPH_DEPTH_32BPP);
+		setreg(DGRPH_SWAP_CNTL, DGRPH_ENDIAN_SWAP, DGRPH_ENDIAN_SWAP_32);
+	}
+
+	setreg(DGRPH_CONTROL, DGRPH_ADDRESS_TRANSLATION, DGRPH_ADDRESS_TRANSLATION_PHYS);
+	setreg(DGRPH_CONTROL, DGRPH_PRIVILEGED_ACCESS, DGRPH_PRIVILEGED_ACCESS_DISABLE);
+	setreg(DGRPH_CONTROL, DGRPH_ARRAY_MODE, DGRPH_ARRAY_LINEAR_ALIGNED);
+	setreg(DGRPH_SWAP_CNTL, DGRPH_RED_CROSSBAR, DGRPH_RED_CROSSBAR_RED);
+	setreg(DGRPH_SWAP_CNTL, DGRPH_GREEN_CROSSBAR, DGRPH_GREEN_CROSSBAR_GREEN);
+	setreg(DGRPH_SWAP_CNTL, DGRPH_BLUE_CROSSBAR, DGRPH_BLUE_CROSSBAR_BLUE);
+	setreg(DGRPH_SWAP_CNTL, DGRPH_ALPHA_CROSSBAR, DGRPH_ALPHA_CROSSBAR_ALPHA);
+
+	setreg(DGRPH_PITCH, DGRPH_PITCH_VAL, info->var.xres_virtual);
+	info->fix.line_length = info->var.xres_virtual * info->var.bits_per_pixel / 8;
+
+	setreg(DGRPH_SURFACE_OFFSET_X, DGRPH_SURFACE_OFFSET_X_VAL, info->var.xoffset);
+	setreg(DGRPH_SURFACE_OFFSET_Y, DGRPH_SURFACE_OFFSET_Y_VAL, info->var.yoffset);
+	setreg(DGRPH_X_START, DGRPH_X_START_VAL, 0);
+	setreg(DGRPH_Y_START, DGRPH_Y_START_VAL, 0);
+	setreg(DGRPH_X_END, DGRPH_X_END_VAL, info->var.xres);
+	setreg(DGRPH_Y_END, DGRPH_Y_END_VAL, info->var.yres);
+
+	if (info->screen_base) {
+		dma_free_coherent(info->device, info->screen_size, info->screen_base, drvdata->screen_dma);
+		info->screen_base = NULL;
+		info->screen_size = 0;
+		drvdata->screen_dma = 0;
+	}
+	info->screen_size = PAGE_ALIGN(info->fix.line_length * info->var.yres_virtual);
+	info->screen_base = dma_zalloc_coherent(info->device, info->screen_size, &drvdata->screen_dma, GFP_KERNEL);
+	if (!info->screen_base) {
+		fb_err(info, "Could not allocate frambuffer memory!\n");
+		return -ENOMEM;
+	}
+	info->fix.smem_start = drvdata->screen_dma;
+	info->fix.smem_len = info->screen_size;
+	fb_info(info, "Allocated framebuffer %p / 0x%08x\n", info->screen_base, drvdata->screen_dma);
+
+	setreg(DGRPH_PRIMARY_SURFACE_ADDRESS, DGRPH_PRIMARY_SURFACE_ADDR, drvdata->screen_dma);
+	setreg(DGRPH_ENABLE, DGRPH_ENABLE_REG, 1);
+
+	return 0;
+}
 
 static int wiiufb_setcolreg(unsigned regno, unsigned red, unsigned green, unsigned blue, unsigned transp, struct fb_info *info) {
 	u32 *pal = info->pseudo_palette;
@@ -146,128 +220,109 @@ static int wiiufb_mmap(struct fb_info *info, struct vm_area_struct * vma)
 	return vm_iomap_memory(vma, start, len);
 }
 
-
 static struct fb_ops wiiufb_ops = {
 	.owner				= THIS_MODULE,
 	.fb_setcolreg		= wiiufb_setcolreg,
-	.fb_mmap			= wiiufb_mmap,
+	.fb_check_var		= wiiufb_check_var,
+	.fb_set_par			= wiiufb_set_par,
+//	.fb_mmap			= wiiufb_mmap,
 	.fb_fillrect		= cfb_fillrect,
 	.fb_copyarea		= cfb_copyarea,
 	.fb_imageblit		= cfb_imageblit,
 };
 
+static struct fb_fix_screeninfo wiiufb_fix = {
+	.id =		"wiiufb",
+	.type =		FB_TYPE_PACKED_PIXELS,
+	.visual =	FB_VISUAL_TRUECOLOR,
+	.accel =	FB_ACCEL_NONE
+};
 
-static int wiiufb_assign(struct platform_device *pdev, struct wiiufb_drvdata *drvdata, struct wiiufb_platform_data *pdata) {
-	int rc;
-	struct device *dev = &pdev->dev;
-	int fbsize = pdata->width * pdata->height * BYTES_PER_PIXEL;
-	struct resource* res;
-
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	drvdata->regs = devm_ioremap_resource(dev, res);
-	if (IS_ERR(drvdata->regs)) {
-		dev_err(dev, "Failed to map registers!\n");
-		return -ENOMEM;
-	}
-
-	drvdata->regs_phys = res->start;
-	drvdata->fb_virt = dma_zalloc_coherent(dev, PAGE_ALIGN(fbsize), &drvdata->fb_phys, GFP_KERNEL);
-
-	if (!drvdata->fb_virt) {
-		dev_err(dev, "Could not allocate framebuffer!\n");
-		return -ENOMEM;
-	}
-
-	writereg(DGRPH_ENABLE, 0);
-	writereg(DGRPH_CONTROL, 0);
-	writereg(DGRPH_PRIMARY_SURFACE_ADDRESS, 0);
-	writereg(DGRPH_PITCH, 0);
-	setreg(DGRPH_ENABLE, DGRPH_ENABLE_REG, 1);
-	setreg(DGRPH_CONTROL, DGRPH_DEPTH, DGRPH_DEPTH_16BPP);
-	setreg(DGRPH_CONTROL, DGRPH_FORMAT, DGRPH_FORMAT_16BPP_RGB565);
-	setreg(DGRPH_CONTROL, DGRPH_ADDRESS_TRANSLATION, DGRPH_ADDRESS_TRANSLATION_PHYS);
-	setreg(DGRPH_CONTROL, DGRPH_PRIVILEGED_ACCESS, DGRPH_PRIVILEGED_ACCESS_DISABLE);
-	setreg(DGRPH_CONTROL, DGRPH_ARRAY_MODE, DGRPH_ARRAY_LINEAR_ALIGNED);
-	setreg(DGRPH_PRIMARY_SURFACE_ADDRESS, DGRPH_PRIMARY_SURFACE_ADDR, drvdata->fb_phys);
-	setreg(DGRPH_PITCH, DGRPH_PITCH_VAL, pdata->width);
-	leak_mmio = readreg(DGRPH_CONTROL);
-
-	setreg(DGRPH_SWAP_CNTL, DGRPH_ENDIAN_SWAP, DGRPH_ENDIAN_SWAP_16);
-	setreg(DGRPH_SWAP_CNTL, DGRPH_RED_CROSSBAR, DGRPH_RED_CROSSBAR_RED);
-	setreg(DGRPH_SWAP_CNTL, DGRPH_GREEN_CROSSBAR, DGRPH_GREEN_CROSSBAR_GREEN);
-	setreg(DGRPH_SWAP_CNTL, DGRPH_BLUE_CROSSBAR, DGRPH_BLUE_CROSSBAR_BLUE);
-	setreg(DGRPH_SWAP_CNTL, DGRPH_ALPHA_CROSSBAR, DGRPH_ALPHA_CROSSBAR_ALPHA);
-
-	/* Fill struct fb_info */
-	drvdata->info.device = dev;
-	drvdata->info.screen_base = drvdata->fb_virt;
-	drvdata->info.screen_size = fbsize;
-	drvdata->info.fbops = &wiiufb_ops;
-	drvdata->info.fix = wiiu_fb_fix;
-	drvdata->info.fix.smem_start = drvdata->fb_phys;
-	drvdata->info.fix.smem_len = fbsize;
-	drvdata->info.fix.line_length = pdata->width * BYTES_PER_PIXEL;
-	drvdata->info.fix.mmio_start = res->start;
-	drvdata->info.fix.mmio_len = resource_size(res);
-
-	drvdata->info.pseudo_palette = drvdata->pseudo_palette;
-	drvdata->info.flags = FBINFO_DEFAULT;
-	drvdata->info.var = wiiu_fb_var;
-	drvdata->info.var.xres = pdata->width;
-	drvdata->info.var.yres = pdata->height;
-	drvdata->info.var.xres_virtual = pdata->width;
-	drvdata->info.var.yres_virtual = pdata->height;
-
-	/* Allocate a colour map */
-	rc = fb_alloc_cmap(&drvdata->info.cmap, MAX_PALETTES, 0);
-	if (rc) {
-		return rc;
-	}
-
-	/* Register new frame buffer */
-	rc = register_framebuffer(&drvdata->info);
-	if (rc) {
-		fb_dealloc_cmap(&drvdata->info.cmap);
-		return rc;
-	}
-
-	return 0;
-}
-
-static int wiiufb_release(struct device *dev) {
-	struct wiiufb_drvdata *drvdata = dev_get_drvdata(dev);
-
-	unregister_framebuffer(&drvdata->info);
-	fb_dealloc_cmap(&drvdata->info.cmap);
-
-	return 0;
-}
+static struct fb_var_screeninfo wiiufb_var_default = {
+	.bits_per_pixel =	16,
+	.activate =	FB_ACTIVATE_NOW,
+};
 
 static int wiiufb_probe(struct platform_device *pdev) {
-	struct wiiufb_platform_data pdata;
 	struct wiiufb_drvdata *drvdata;
+	struct resource *regs;
+	struct fb_info *info;
+	int rc;
+	u32 width, height;
 
-	if (of_property_read_u32(pdev->dev.of_node, "default-width", &pdata.width)) {
-		pdata.width = 1280;
+	info = framebuffer_alloc(sizeof(struct wiiufb_drvdata), &pdev->dev);
+	if (!info) {
+		pr_err("wiiufb: Couldn't allocate fb_info!\n");
+		return -ENOMEM;
 	}
-	if (of_property_read_u32(pdev->dev.of_node, "default-height", &pdata.height)) {
-		pdata.height = 720;
-	}
+	drvdata = (struct wiiufb_drvdata *)info->par;
 
-	pr_info("wiiufb: making %dx%d framebuffer\n", pdata.width, pdata.height);
-
-	/* Allocate the driver data region */
-	drvdata = devm_kzalloc(&pdev->dev, sizeof(*drvdata), GFP_KERNEL);
-	if (!drvdata) {
+	regs = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	drvdata->regs = devm_ioremap_resource(&pdev->dev, regs);
+	if (IS_ERR(drvdata->regs)) {
+		dev_err(&pdev->dev, "Failed to map registers!\n");
 		return -ENOMEM;
 	}
 
-	dev_set_drvdata(&pdev->dev, drvdata);
-	return wiiufb_assign(pdev, drvdata, &pdata);
+	rc = of_reserved_mem_device_init(&pdev->dev);
+	if (rc) {
+		dev_err(&pdev->dev, "Failed to get reserved memory! %d\n", rc);
+		return -ENOMEM;
+	}
+
+	if (of_property_read_u32(pdev->dev.of_node, "default-width", &width)) {
+		width = 1280;
+	}
+	if (of_property_read_u32(pdev->dev.of_node, "default-height", &height)) {
+		height = 720;
+	}
+
+	dev_info(&pdev->dev, "making %dx%d framebuffer\n", width, height);
+
+	info->var = wiiufb_var_default;
+	info->var.xres = width;
+	info->var.yres = height;
+	info->var.xres_virtual = width;
+	info->var.yres_virtual = height;
+
+	info->fix = wiiufb_fix;
+	info->fix.mmio_start = regs->start;
+	info->fix.mmio_len = resource_size(regs);
+
+	info->flags = FBINFO_FLAG_DEFAULT;
+	info->pseudo_palette = &drvdata->pseudo_palette;
+	info->fbops = &wiiufb_ops;
+
+	/* Allocate a colour map */
+	rc = fb_alloc_cmap(&info->cmap, MAX_PALETTES, 0);
+	if (rc) {
+		return rc;
+	}
+
+	wiiufb_check_var(&info->var, info);
+	wiiufb_set_par(info);
+
+	/* Register new frame buffer */
+	rc = register_framebuffer(info);
+	if (rc) {
+		fb_dealloc_cmap(&info->cmap);
+		return rc;
+	}
+	platform_set_drvdata(pdev, info);
+
+	return 0;
 }
 
-static int wiiufb_remove(struct platform_device *op) {
-	return wiiufb_release(&op->dev);
+static int wiiufb_remove(struct platform_device *pdev) {
+	struct fb_info *info = platform_get_drvdata(pdev);
+
+	if (info) {
+		unregister_framebuffer(info);
+		fb_dealloc_cmap(&info->cmap);
+		framebuffer_release(info);
+	}
+
+	return 0;
 }
 
 /* Match table for of_platform binding */
