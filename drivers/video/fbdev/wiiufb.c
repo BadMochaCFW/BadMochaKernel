@@ -300,7 +300,6 @@ static int wiiufb_probe(struct platform_device *pdev) {
 	}
 
 	wiiufb_check_var(&info->var, info);
-	wiiufb_set_par(info);
 
 	/* Register new frame buffer */
 	rc = register_framebuffer(info);

@@ -10,7 +10,7 @@
     #size-cells = <1>;
 
     chosen {
-        bootargs = "root=/dev/mmcblk0p2 rootwait";
+        bootargs = "root=/dev/mmcblk0p2 rootwait quiet";
     };
 
     memory {
