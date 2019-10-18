@@ -194,38 +194,11 @@ static int wiiufb_setcolreg(unsigned regno, unsigned red, unsigned green, unsign
 	return 0;
 }
 
-/*
- * Since there's no cache coherency between Espresso and Latte, the framebuffer
- * must be mapped with write-trough caching or with caching disabled
- */
-static int wiiufb_mmap(struct fb_info *info, struct vm_area_struct * vma)
-{
-	unsigned long mmio_pgoff;
-	unsigned long start;
-	u32 len;
-
-	start = info->fix.smem_start;
-	len = info->fix.smem_len;
-	mmio_pgoff = PAGE_ALIGN((start & ~PAGE_MASK) + len) >> PAGE_SHIFT;
-	if (vma->vm_pgoff >= mmio_pgoff) {
-		if (info->var.accel_flags)
-			return -EINVAL;
-
-		vma->vm_pgoff -= mmio_pgoff;
-		start = info->fix.mmio_start;
-		len = info->fix.mmio_len;
-	}
-	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
-
-	return vm_iomap_memory(vma, start, len);
-}
-
 static struct fb_ops wiiufb_ops = {
 	.owner				= THIS_MODULE,
 	.fb_setcolreg		= wiiufb_setcolreg,
 	.fb_check_var		= wiiufb_check_var,
 	.fb_set_par			= wiiufb_set_par,
-//	.fb_mmap			= wiiufb_mmap,
 	.fb_fillrect		= cfb_fillrect,
 	.fb_copyarea		= cfb_copyarea,
 	.fb_imageblit		= cfb_imageblit,
