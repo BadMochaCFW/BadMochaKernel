@@ -39,6 +39,32 @@
 	.idProduct = prod, \
 	.bInterfaceClass = USB_CLASS_VENDOR_SPEC
 
+/* Nintendo Wii U DRH */
+{
+	USB_DEVICE(0x057e, 0x0341),
+	.driver_info = (unsigned long) & (const struct snd_usb_audio_quirk) {
+		.ifnum = QUIRK_ANY_INTERFACE,
+		.type = QUIRK_COMPOSITE,
+		.data = & (const struct snd_usb_audio_quirk[]) {
+			{
+				.ifnum = 2,
+				.type = QUIRK_IGNORE_INTERFACE,
+			},
+			{
+				.ifnum = 3,
+				.type = QUIRK_IGNORE_INTERFACE,
+			},
+			{
+				.ifnum = 4,
+				.type = QUIRK_IGNORE_INTERFACE,
+			},
+			{
+				.ifnum = 5,
+				.type = QUIRK_IGNORE_INTERFACE,
+			}
+		}
+	}
+},
 /* FTDI devices */
 {
 	USB_DEVICE(0x0403, 0xb8d8),
