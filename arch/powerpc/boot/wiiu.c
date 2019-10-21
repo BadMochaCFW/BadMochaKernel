@@ -75,13 +75,13 @@ void platform_init(unsigned int r3, unsigned int r4, unsigned int r5) {
 
     console_ops.write = wiiu_write_ipc;
     wiiu_write_ipc("Hello from the bootwrapper!\n", sizeof("Hello from the bootwrapper!\n"));
-    
 
-    heapsize = 16*1024*1024 - (u32)_end;
+
+    heapsize = 32*1024*1024 - (u32)_end;
     simple_alloc_init(_end, heapsize, 32, 64);
 
     wiiu_write_ipc("heap ok\n", sizeof("heap ok\n"));
-    
+
     fdt_init(_dtb_start);
 
     wiiu_write_ipc("dtb ok\n", sizeof("dtb ok\n"));
