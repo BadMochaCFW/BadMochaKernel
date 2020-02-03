@@ -20,6 +20,7 @@
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
 #include <linux/of_platform.h>
+#include <linux/of_reserved_mem.h>
 
 
 static const struct hc_driver ehci_ppc_of_hc_driver = {
@@ -31,8 +32,11 @@ static const struct hc_driver ehci_ppc_of_hc_driver = {
 	 * generic hardware linkage
 	 */
 	.irq			= ehci_irq,
+#ifdef CONFIG_WIIU
+	.flags			= HCD_MEMORY | HCD_USB2 | HCD_BH | HCD_NO_COHERENT_MEM,
+#else
 	.flags			= HCD_MEMORY | HCD_USB2 | HCD_BH,
-
+#endif
 	/*
 	 * basic lifecycle operations
 	 */
@@ -140,6 +144,11 @@ static int ehci_hcd_ppc_of_probe(struct platform_device *op)
 	if (IS_ERR(hcd->regs)) {
 		rv = PTR_ERR(hcd->regs);
 		goto err_ioremap;
+	}
+
+	rv = of_reserved_mem_device_init(&op->dev);
+	if (rv) {
+		dev_warn(&op->dev, "Failed to get reserved memory! %d\n", rv);
 	}
 
 	if (of_device_is_compatible(dn, "nintendo,ehci-wiiu")) {
