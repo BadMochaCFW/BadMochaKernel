@@ -60,9 +60,21 @@ _zimage_start:
     ori r8, r8,0x0d800007ff@l
     mtspr 0x21c, r8 /* DBAT2U */
 
+    /* mapped into physical 0x0d800000; read-write; writethrough/nocache/guard*/
     lis r8, 0x0d80006A@h
     ori r8, r8,0x0d80006A@l
     mtspr 0x21d, r8 /* DBAT2L */
+
+    /* Bootloader comms area (actually 0x89200000) */
+    /* 128MiB, starting at 0x88000000... */
+    lis r8, 0x88000fff@h
+    ori r8, r8, 0x88000fff@l
+    mtspr 0x21e, r8 /* DBAT3U */
+
+    /* mapped into physical 0x88000000; read-write; normal caching. */
+    lis r8, 0x88000002@h
+    ori r8, r8, 0x88000002@l
+    mtspr 0x21f, r8 /* DBAT3L */
 
     /* Turn on BAT 4 through 7 */
     mfspr r8, 0x3f3 /* HID4 */

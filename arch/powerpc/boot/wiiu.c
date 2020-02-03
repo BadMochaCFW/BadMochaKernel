@@ -38,13 +38,6 @@ struct wiiu_loader_data {
 };
 const static struct wiiu_loader_data* arm_data = (void*)0x89200000;
 
-static void wiiu_copy_cmdline(char* cmdline, int cmdlineSz, unsigned int timeout) {
-/*  If the ARM left us a commandline, copy it in */
-    /*if (arm_data->magic == WIIU_LOADER_MAGIC) {
-        strncpy(cmdline, arm_data->cmdline, 256);
-    }*/
-}
-
 static void wiiu_write_ipc(const char *buf, int len) {
     int i = 0;
     for (i = 0; i < len; i += 3) {
@@ -67,6 +60,14 @@ static void wiiu_write_ipc(const char *buf, int len) {
     }
 }
 
+static void wiiu_copy_cmdline(char* cmdline, int cmdlineSz, unsigned int timeout) {
+/*  If the ARM left us a commandline, copy it in */
+    if (arm_data->magic == WIIU_LOADER_MAGIC) {
+        wiiu_write_ipc("found custom commandline!\n", sizeof("found custom commandline!\n"));
+        strncpy(cmdline, arm_data->cmdline, 256);
+    }
+}
+
 /* Mostly copied from gamecube.c. Obviously the GameCube is not the same
  * as the Wii U. TODO.
  */
@@ -86,9 +87,8 @@ void platform_init(unsigned int r3, unsigned int r4, unsigned int r5) {
 
     wiiu_write_ipc("dtb ok\n", sizeof("dtb ok\n"));
 
-/*  TODO re-add the mapping for 0x89200000 to enable this */
-    /*console_ops.edit_cmdline = wiiu_copy_cmdline;
-    if (arm_data->magic == WIIU_LOADER_MAGIC) {
+    console_ops.edit_cmdline = wiiu_copy_cmdline;
+    /*if (arm_data->magic == WIIU_LOADER_MAGIC) {
         if (arm_data->initrd_sz > 0) {
             loader_info.initrd_addr = (unsigned long)arm_data->initrd;
             loader_info.initrd_size = (unsigned long)arm_data->initrd_sz;
