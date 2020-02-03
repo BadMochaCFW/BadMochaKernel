@@ -22,6 +22,7 @@
 #include <linux/module.h>
 #include <linux/err.h>
 #include <linux/of.h>
+#include <linux/of_reserved_mem.h>
 #include <linux/platform_device.h>
 #include <linux/usb/ohci_pdriver.h>
 #include <linux/usb.h>
@@ -127,7 +128,7 @@ static const struct hc_driver wiiu_ohci_hc_driver = {
      * generic hardware linkage
     */
     .irq = ohci_irq,
-    .flags = HCD_MEMORY | HCD_USB11,
+    .flags = HCD_MEMORY | HCD_USB11 | HCD_NO_COHERENT_MEM,
 
     /*
     * basic lifecycle operations
@@ -169,10 +170,6 @@ static int wiiu_ohci_probe(struct platform_device *op) {
 
     if (usb_disabled()) return -ENODEV;
 
-    //This is probably a bad thing.
-    err = dma_coerce_mask_and_coherent(&op->dev, DMA_BIT_MASK(32));
-    if (err) return err;
-
     irq = platform_get_irq(op, 0);
     if (irq < 0) {
         dev_err(&op->dev, "no irq provided!");
@@ -199,6 +196,11 @@ static int wiiu_ohci_probe(struct platform_device *op) {
     res_mem = platform_get_resource(op, IORESOURCE_MEM, 0);
     hcd->regs = devm_ioremap_resource(&op->dev, res_mem);
     if (IS_ERR(hcd->regs)) return PTR_ERR(hcd->regs);
+
+    err = of_reserved_mem_device_init(&op->dev);
+    if (err) {
+        dev_warn(&op->dev, "Failed to get reserved memory! %d\n", err);
+    }
 
     hcd->rsrc_start = res_mem->start;
     hcd->rsrc_len = resource_size(res_mem);
