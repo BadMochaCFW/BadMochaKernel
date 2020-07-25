@@ -58,6 +58,9 @@ linux-build-debian:
 linux-deploy-debian:
     stage: deploy
     image: debian:buster-slim
+    variables:
+        GIT_DEPTH: 2
+        GIT_STRATEGY: none
     needs:
         - job: linux-build-debian
           artifacts: true
