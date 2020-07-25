@@ -33,7 +33,7 @@ linux-build-modular:
         name: "${CI_JOB_NAME}-${CI_COMMIT_REF_SLUG}"
         expire_in: 6 weeks
 
-linux-build-debian:
+linux-debian:
     stage: build
     image: registry.gitlab.com/linux-wiiu/linux-wiiu-scripts/lw-ci:latest
     before_script:
