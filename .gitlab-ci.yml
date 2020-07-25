@@ -22,6 +22,7 @@ linux-build-modular:
     script:
         - mkdir modules
         - make wiiu_slim_defconfig $LINUXMK
+        - make $LINUXMK
         - make $LINUXMK modules_install INSTALL_MOD_PATH=modules
         - cp arch/powerpc/boot/dtbImage.wiiu dtbImage.wiiu
     artifacts:
