@@ -43,18 +43,16 @@ linux-build-debian:
         - ssh-keyscan -H 'gitlab.com' >> ~/.ssh/known_hosts
         - eval $(ssh-agent -s)
         - echo "$BOT_SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
-    script:
         - export PKG_REV=$(git shortlog HEAD | grep -E '^[ ]+\w+' | wc -l)
         - mkdir modules
         - make wiiu_slim_defconfig $LINUXMK
         - make $LINUXMK bindeb-pkg KBUILD_IMAGE=arc/powerpc/boot/dtbImage.wiiu DEBFULLNAME="Ash Logan" DEBEMAIL="ash@linux-wiiu.org" KDEB_CHANGELOG_DIST="unstable" KDEB_PKGVERSION=$PKG_REV
-    after_script:
         - git clone git@gitlab.com:linux-wiiu/debian-wiiu-repo
         - mv ../*.deb ../*.buildinfo debian-wiiu-repo/debs/
         - cd debian-wiiu-repo && git add debs/* && git commit -m "Add kernel r${PKG_REV} from ${CI_PROJECT_PATH}/${CI_COMMIT_SHA}" && git push
     artifacts:
         paths:
-            - *.deb
-            - *.buildinfo
+            - ./*.deb
+            - ./*.buildinfo
         name: "${CI_JOB_NAME}-${CI_COMMIT_REF_SLUG}"
         expire_in: 6 weeks
