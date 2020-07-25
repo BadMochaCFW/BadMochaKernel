@@ -36,7 +36,7 @@ linux-build-modular:
 linux-debian:
     stage: build
     image: registry.gitlab.com/linux-wiiu/linux-wiiu-scripts/lw-ci:latest
-    before_script:
+    script:
         - apt update && apt -y install openssh-client git
         - mkdir -p ~/.ssh
         - chmod 700 ~/.ssh
