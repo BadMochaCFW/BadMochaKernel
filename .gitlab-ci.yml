@@ -13,3 +13,21 @@ linux-build:
             - vmlinux
         name: "${CI_JOB_NAME}-${CI_COMMIT_REF_SLUG}"
         expire_in: 6 weeks
+
+linux-build-modular:
+    stage: build
+    image: registry.gitlab.com/linux-wiiu/linux-wiiu-scripts/lw-ci:latest
+    variables:
+        GIT_DEPTH: 2
+    script:
+        - mkdir modules
+        - make wiiu_slim_defconfig $LINUXMK
+        - make $LINUXMK modules_install INSTALL_MOD_PATH=modules
+        - cp arch/powerpc/boot/dtbImage.wiiu dtbImage.wiiu
+    artifacts:
+        paths:
+            - dtbImage.wiiu
+            - vmlinux
+            - modules
+        name: "${CI_JOB_NAME}-${CI_COMMIT_REF_SLUG}"
+        expire_in: 6 weeks
