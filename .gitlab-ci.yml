@@ -33,7 +33,7 @@ linux-build-modular:
         name: "${CI_JOB_NAME}-${CI_COMMIT_REF_SLUG}"
         expire_in: 6 weeks
 
-linux-debian:
+linux-build-debian:
     stage: build
     image: registry.gitlab.com/linux-wiiu/linux-wiiu-scripts/lw-ci:latest
     script:
@@ -47,12 +47,21 @@ linux-debian:
         - mkdir modules
         - make wiiu_slim_defconfig $LINUXMK
         - make $LINUXMK bindeb-pkg KBUILD_IMAGE=arch/powerpc/boot/dtbImage.wiiu DEBFULLNAME="Ash Logan" DEBEMAIL="ash@linux-wiiu.org" KDEB_CHANGELOG_DIST="unstable" KDEB_PKGVERSION=$PKG_REV
-        - git clone git@gitlab.com:linux-wiiu/debian-wiiu-repo
-        - mv ../*.deb ../*.buildinfo debian-wiiu-repo/debs/
-        - cd debian-wiiu-repo && git add debs/* && git commit -m "Add kernel r${PKG_REV} from ${CI_PROJECT_PATH}/${CI_COMMIT_SHA}" && git push
+        - mv ../*.deb ../*.buildinfo .
     artifacts:
         paths:
             - ./*.deb
             - ./*.buildinfo
         name: "${CI_JOB_NAME}-${CI_COMMIT_REF_SLUG}"
         expire_in: 6 weeks
+
+linux-deploy-debian:
+    stage: deploy
+    image: debian:buster-slim
+    needs:
+        - job: linux-build-debian
+          artifacts: true
+    script:
+        - git clone git@gitlab.com:linux-wiiu/debian-wiiu-repo
+        - mv ./*.deb ./*.buildinfo debian-wiiu-repo/debs/
+        - cd debian-wiiu-repo && git add debs/* && git commit -m "Add kernel r${PKG_REV} from ${CI_PROJECT_PATH}/${CI_COMMIT_SHA}" && git push
