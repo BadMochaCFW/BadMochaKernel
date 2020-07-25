@@ -36,14 +36,10 @@ linux-build-modular:
 linux-build-debian:
     stage: build
     image: registry.gitlab.com/linux-wiiu/linux-wiiu-scripts/lw-ci:latest
+    variables:
+        GIT_DEPTH: 2
     script:
-        - apt update && apt -y install openssh-client git
-        - mkdir -p ~/.ssh
-        - chmod 700 ~/.ssh
-        - ssh-keyscan -H 'gitlab.com' >> ~/.ssh/known_hosts
-        - eval $(ssh-agent -s)
-        - echo "$BOT_SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
-        - export PKG_REV=$(git shortlog HEAD | grep -E '^[ ]+\w+' | wc -l)
+        - export PKG_REV=1
         - mkdir modules
         - make wiiu_slim_defconfig $LINUXMK
         - make $LINUXMK bindeb-pkg KBUILD_IMAGE=arch/powerpc/boot/dtbImage.wiiu DEBFULLNAME="Ash Logan" DEBEMAIL="ash@linux-wiiu.org" KDEB_CHANGELOG_DIST="unstable" KDEB_PKGVERSION=$PKG_REV
@@ -65,6 +61,12 @@ linux-deploy-debian:
         - job: linux-build-debian
           artifacts: true
     script:
+        - apt update && apt -y install openssh-client git
+        - mkdir -p ~/.ssh
+        - chmod 700 ~/.ssh
+        - ssh-keyscan -H 'gitlab.com' >> ~/.ssh/known_hosts
+        - eval $(ssh-agent -s)
+        - echo "$BOT_SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add
         - git clone git@gitlab.com:linux-wiiu/debian-wiiu-repo
         - mv ./*.deb ./*.buildinfo debian-wiiu-repo/debs/
         - cd debian-wiiu-repo && git add debs/* && git commit -m "Add kernel r${PKG_REV} from ${CI_PROJECT_PATH}/${CI_COMMIT_SHA}" && git push
