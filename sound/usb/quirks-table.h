@@ -39,6 +39,17 @@
 	.idProduct = prod, \
 	.bInterfaceClass = USB_CLASS_VENDOR_SPEC
 
+/* FTDI devices */
+{
+	USB_DEVICE(0x0403, 0xb8d8),
+	.driver_info = (unsigned long) & (const struct snd_usb_audio_quirk) {
+		/* .vendor_name = "STARR LABS", */
+		/* .product_name = "Starr Labs MIDI USB device", */
+		.ifnum = 0,
+		.type = QUIRK_MIDI_FTDI
+	}
+},
+
 /* Nintendo Wii U DRH */
 {
 	USB_DEVICE(0x057e, 0x0341),
@@ -63,16 +74,6 @@
 				.type = QUIRK_IGNORE_INTERFACE,
 			}
 		}
-	}
-},
-/* FTDI devices */
-{
-	USB_DEVICE(0x0403, 0xb8d8),
-	.driver_info = (unsigned long) & (const struct snd_usb_audio_quirk) {
-		/* .vendor_name = "STARR LABS", */
-		/* .product_name = "Starr Labs MIDI USB device", */
-		.ifnum = 0,
-		.type = QUIRK_MIDI_FTDI
 	}
 },
 
