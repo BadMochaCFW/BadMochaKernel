@@ -60,6 +60,7 @@ enum {
 #define STICK_MAX 3200
 #define NUM_STICK_AXES 4
 #define NUM_TOUCH_POINTS 10
+#define MAX_TOUCH_RES (1 << 12)
 #define BATTERY_MIN 142
 #define BATTERY_MAX 178
 #define BATTERY_CAPACITY(val) ((val - BATTERY_MIN) * 100 / (BATTERY_MAX - BATTERY_MIN))
@@ -119,7 +120,6 @@ static int drc_raw_event(struct hid_device *hdev, struct hid_report *report,
 	 u8 *data, int len)
 {
 	struct drc *drc = hid_get_drvdata(hdev);
-	int touch;
 	int x, y, pressure, i, base;
 	u32 buttons;
 	unsigned long flags;
@@ -180,7 +180,7 @@ static int drc_raw_event(struct hid_device *hdev, struct hid_report *report,
 	y /= NUM_TOUCH_POINTS;
 
 	/*This doesn't work at the moment*/
-	/*pressure = 0;
+	pressure = 0;
 	pressure |= ((data[37] >> 4) & 7) << 0;
 	pressure |= ((data[39] >> 4) & 7) << 3;
 	pressure |= ((data[41] >> 4) & 7) << 6;
@@ -191,12 +191,12 @@ static int drc_raw_event(struct hid_device *hdev, struct hid_report *report,
 		input_report_key(drc->touch_input_dev, BTN_TOOL_FINGER, 1);
 
 		input_report_abs(drc->touch_input_dev, ABS_X, x);
-		input_report_abs(drc->touch_input_dev, ABS_Y, y);
+		input_report_abs(drc->touch_input_dev, ABS_Y, MAX_TOUCH_RES - y);
 	} else {
 		input_report_key(drc->touch_input_dev, BTN_TOUCH, 0);
 		input_report_key(drc->touch_input_dev, BTN_TOOL_FINGER, 0);
 	}
-	input_sync(drc->touch_input_dev); */
+	input_sync(drc->touch_input_dev);
 
 	/* battery */
 	spin_lock_irqsave(&drc->lock, flags);
@@ -262,15 +262,15 @@ static bool drc_setup_touch(struct drc *drc,
 
 	input_dev->evbit[0] = BIT(EV_ABS) | BIT(EV_KEY);
 
-	input_set_abs_params(input_dev, ABS_X, 0, RES_X, 1, 0);
+	input_set_abs_params(input_dev, ABS_X, 100, MAX_TOUCH_RES - 100, 20, 0);
 	input_abs_set_res(input_dev, ABS_X, RES_X / WIDTH);
-	input_set_abs_params(input_dev, ABS_Y, 0, RES_Y, 1, 0);
+	input_set_abs_params(input_dev, ABS_Y, 200, MAX_TOUCH_RES - 200, 20, 0);
 	input_abs_set_res(input_dev, ABS_Y, RES_Y / HEIGHT);
 
 	set_bit(BTN_TOUCH, input_dev->keybit);
 	set_bit(BTN_TOOL_FINGER, input_dev->keybit);
 
-	set_bit(INPUT_PROP_POINTER, input_dev->propbit);
+	set_bit(INPUT_PROP_DIRECT, input_dev->propbit);
 
 	drc->touch_input_dev = input_dev;
 
