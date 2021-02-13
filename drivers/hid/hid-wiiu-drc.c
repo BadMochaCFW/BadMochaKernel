@@ -43,12 +43,6 @@ MODULE_LICENSE("GPL");
  * - an accelerometer device
  */
 
-enum {
-	AXIS_X,
-	AXIS_Y,
-	AXIS_Z
-};
-
 #define DEVICE_NAME "Nintendo Wii U GamePad [DRH]"
 /* resolution in pixels */
 #define RES_X 854
