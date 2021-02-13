@@ -64,6 +64,10 @@ enum {
 #define BATTERY_MIN 142
 #define BATTERY_MAX 178
 #define BATTERY_CAPACITY(val) ((val - BATTERY_MIN) * 100 / (BATTERY_MAX - BATTERY_MIN))
+#define ACCEL_MIN -(1 << 15)
+#define ACCEL_MAX ((1 << 15) - 1)
+#define GYRO_MIN -(1 << 23)
+#define GYRO_MAX ((1 << 23) - 1)
 
 //#define PRESSURE_OFFSET 113
 //#define MAX_PRESSURE (255 - PRESSURE_OFFSET)
@@ -105,22 +109,11 @@ enum ButtonMask {
 	kBtnL3 = 0x800000,
 } buttons;
 
-/*static int clamp_accel(int axis, int offset)
-{
-	axis = clamp(axis,
-			accel_limits[offset].min,
-			accel_limits[offset].max);
-	axis = (axis - accel_limits[offset].min) /
-			((accel_limits[offset].max -
-			  accel_limits[offset].min) * 0xFF);
-	return axis;
-}*/
-
 static int drc_raw_event(struct hid_device *hdev, struct hid_report *report,
 	 u8 *data, int len)
 {
 	struct drc *drc = hid_get_drvdata(hdev);
-	int x, y, pressure, i, base;
+	int x, y, z, pressure, i, base;
 	u32 buttons;
 	unsigned long flags;
 
@@ -197,6 +190,23 @@ static int drc_raw_event(struct hid_device *hdev, struct hid_report *report,
 		input_report_key(drc->touch_input_dev, BTN_TOOL_FINGER, 0);
 	}
 	input_sync(drc->touch_input_dev);
+
+	/* accelerometer */
+	x = (data[16] << 8) | data[15];
+	y = (data[18] << 8) | data[17];
+	z = (data[20] << 8) | data[19];
+	input_report_abs(drc->accel_input_dev, ABS_X, (int16_t)x);
+	input_report_abs(drc->accel_input_dev, ABS_Y, (int16_t)y);
+	input_report_abs(drc->accel_input_dev, ABS_Z, (int16_t)z);
+
+	/* gyroscope */
+	x = (data[23] << 24) | (data[22] << 16) | (data[21] << 8);
+	y = (data[26] << 24) | (data[25] << 16) | (data[24] << 8);
+	z = (data[29] << 24) | (data[28] << 16) | (data[27] << 8);
+	input_report_abs(drc->accel_input_dev, ABS_RX, x >> 8);
+	input_report_abs(drc->accel_input_dev, ABS_RY, y >> 8);
+	input_report_abs(drc->accel_input_dev, ABS_RZ, z >> 8);
+	input_sync(drc->accel_input_dev);
 
 	/* battery */
 	spin_lock_irqsave(&drc->lock, flags);
@@ -277,7 +287,7 @@ static bool drc_setup_touch(struct drc *drc,
 	return true;
 }
 
-/*static bool drc_setup_accel(struct drc *drc,
+static bool drc_setup_accel(struct drc *drc,
 		struct hid_device *hdev)
 {
 	struct input_dev *input_dev;
@@ -286,19 +296,24 @@ static bool drc_setup_touch(struct drc *drc,
 	if (!input_dev)
 		return false;
 
-	input_dev->evbit[0] = BIT(EV_ABS); */
+	input_dev->evbit[0] = BIT(EV_ABS);
 
-	/* 1G accel is reported as ~256, so clamp to 2G */
-/*	input_set_abs_params(input_dev, ABS_X, -512, 512, 0, 0);
-	input_set_abs_params(input_dev, ABS_Y, -512, 512, 0, 0);
-	input_set_abs_params(input_dev, ABS_Z, -512, 512, 0, 0);
+	/* 1G accel is reported as about -7600, so clamp to 2G */
+	input_set_abs_params(input_dev, ABS_X, ACCEL_MIN, ACCEL_MAX, 0, 0);
+	input_set_abs_params(input_dev, ABS_Y, ACCEL_MIN, ACCEL_MAX, 0, 0);
+	input_set_abs_params(input_dev, ABS_Z, ACCEL_MIN, ACCEL_MAX, 0, 0);
+
+	/* gyroscope */
+	input_set_abs_params(input_dev, ABS_RX, GYRO_MIN, GYRO_MAX, 0, 0);
+	input_set_abs_params(input_dev, ABS_RY, GYRO_MIN, GYRO_MAX, 0, 0);
+	input_set_abs_params(input_dev, ABS_RZ, GYRO_MIN, GYRO_MAX, 0, 0);
 
 	set_bit(INPUT_PROP_ACCELEROMETER, input_dev->propbit);
 
 	drc->accel_input_dev = input_dev;
 
 	return true;
-}*/
+}
 
 static enum power_supply_property drc_battery_props[] = {
 	POWER_SUPPLY_PROP_PRESENT,
@@ -438,15 +453,15 @@ static int drc_probe(struct hid_device *hdev, const struct hid_device_id *id)
 	}
 
 	if (!drc_setup_joypad(drc, hdev) ||
-	    !drc_setup_touch(drc, hdev) /*||
-	    !drc_setup_accel(drc, hdev)*/) {
+	    !drc_setup_touch(drc, hdev) ||
+	    !drc_setup_accel(drc, hdev)) {
 		hid_err(hdev, "could not allocate interfaces\n");
 		return -ENOMEM;
 	}
 
 	ret = input_register_device(drc->joy_input_dev) ||
-		input_register_device(drc->touch_input_dev) /*||
-		input_register_device(drc->accel_input_dev)*/;
+		input_register_device(drc->touch_input_dev) ||
+		input_register_device(drc->accel_input_dev);
 	if (ret) {
 		hid_err(hdev, "failed to register interfaces\n");
 		return ret;
