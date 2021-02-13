@@ -1,6 +1,7 @@
 /*
  * HID driver for Nintendo Wii U GamePad, connected via console-internal DRH
  *
+ * Copyright (C) 2021 Emmanuel Gil Peyrot <linkmauve@linkmauve.fr>
  * Copyright (C) 2019 Ash Logan <ash@heyquark.com>
  * Copyright (C) 2013 Mema Hacking
  *
@@ -21,9 +22,14 @@
  * GNU General Public License for more details.
  */
 
+// XXX: remove that, see drc_setup_joypad().
+#include <linux/random.h>
+
 #include <linux/device.h>
 #include <linux/hid.h>
 #include <linux/module.h>
+#include <linux/power_supply.h>
+#include <linux/spinlock.h>
 #include "hid-ids.h"
 
 MODULE_AUTHOR("Ash Logan <ash@heyquark.com>");
@@ -37,12 +43,6 @@ MODULE_LICENSE("GPL");
  * - an accelerometer device
  */
 
-enum {
-	AXIS_X,
-	AXIS_Y,
-	AXIS_Z
-};
-
 #define DEVICE_NAME "Nintendo Wii U GamePad [DRH]"
 /* resolution in pixels */
 #define RES_X 854
@@ -54,15 +54,30 @@ enum {
 #define STICK_MAX 3200
 #define NUM_STICK_AXES 4
 #define NUM_TOUCH_POINTS 10
+#define MAX_TOUCH_RES (1 << 12)
+#define BATTERY_MIN 142
+#define BATTERY_MAX 178
+#define BATTERY_CAPACITY(val) ((val - BATTERY_MIN) * 100 / (BATTERY_MAX - BATTERY_MIN))
+#define ACCEL_MIN -(1 << 15)
+#define ACCEL_MAX ((1 << 15) - 1)
+#define GYRO_MIN -(1 << 23)
+#define GYRO_MAX ((1 << 23) - 1)
 
 //#define PRESSURE_OFFSET 113
 //#define MAX_PRESSURE (255 - PRESSURE_OFFSET)
 
 struct drc {
+	spinlock_t lock;
+
 	struct input_dev *joy_input_dev;
 	struct input_dev *touch_input_dev;
 	struct input_dev *accel_input_dev;
 	struct hid_device *hdev;
+	struct power_supply *battery;
+	struct power_supply_desc battery_desc;
+
+	u8 battery_energy;
+	int battery_status;
 };
 
 enum ButtonMask {
@@ -88,24 +103,13 @@ enum ButtonMask {
 	kBtnL3 = 0x800000,
 } buttons;
 
-/*static int clamp_accel(int axis, int offset)
-{
-	axis = clamp(axis,
-			accel_limits[offset].min,
-			accel_limits[offset].max);
-	axis = (axis - accel_limits[offset].min) /
-			((accel_limits[offset].max -
-			  accel_limits[offset].min) * 0xFF);
-	return axis;
-}*/
-
 static int drc_raw_event(struct hid_device *hdev, struct hid_report *report,
 	 u8 *data, int len)
 {
 	struct drc *drc = hid_get_drvdata(hdev);
-	int touch;
-	int x, y, pressure, i, base;
+	int x, y, z, pressure, i, base;
 	u32 buttons;
+	unsigned long flags;
 
 	if (len != 128)
 		return 0;
@@ -163,7 +167,7 @@ static int drc_raw_event(struct hid_device *hdev, struct hid_report *report,
 	y /= NUM_TOUCH_POINTS;
 
 	/*This doesn't work at the moment*/
-	/*pressure = 0;
+	pressure = 0;
 	pressure |= ((data[37] >> 4) & 7) << 0;
 	pressure |= ((data[39] >> 4) & 7) << 3;
 	pressure |= ((data[41] >> 4) & 7) << 6;
@@ -174,12 +178,40 @@ static int drc_raw_event(struct hid_device *hdev, struct hid_report *report,
 		input_report_key(drc->touch_input_dev, BTN_TOOL_FINGER, 1);
 
 		input_report_abs(drc->touch_input_dev, ABS_X, x);
-		input_report_abs(drc->touch_input_dev, ABS_Y, y);
+		input_report_abs(drc->touch_input_dev, ABS_Y, MAX_TOUCH_RES - y);
 	} else {
 		input_report_key(drc->touch_input_dev, BTN_TOUCH, 0);
 		input_report_key(drc->touch_input_dev, BTN_TOOL_FINGER, 0);
 	}
-	input_sync(drc->touch_input_dev); */
+	input_sync(drc->touch_input_dev);
+
+	/* accelerometer */
+	x = (data[16] << 8) | data[15];
+	y = (data[18] << 8) | data[17];
+	z = (data[20] << 8) | data[19];
+	input_report_abs(drc->accel_input_dev, ABS_X, (int16_t)x);
+	input_report_abs(drc->accel_input_dev, ABS_Y, (int16_t)y);
+	input_report_abs(drc->accel_input_dev, ABS_Z, (int16_t)z);
+
+	/* gyroscope */
+	x = (data[23] << 24) | (data[22] << 16) | (data[21] << 8);
+	y = (data[26] << 24) | (data[25] << 16) | (data[24] << 8);
+	z = (data[29] << 24) | (data[28] << 16) | (data[27] << 8);
+	input_report_abs(drc->accel_input_dev, ABS_RX, x >> 8);
+	input_report_abs(drc->accel_input_dev, ABS_RY, y >> 8);
+	input_report_abs(drc->accel_input_dev, ABS_RZ, z >> 8);
+	input_sync(drc->accel_input_dev);
+
+	/* battery */
+	spin_lock_irqsave(&drc->lock, flags);
+	drc->battery_energy = data[5];
+	if (drc->battery_energy == BATTERY_MAX)
+		drc->battery_status = POWER_SUPPLY_STATUS_FULL;
+	else if ((data[4] & 0x40) != 0)
+		drc->battery_status = POWER_SUPPLY_STATUS_CHARGING;
+	else
+		drc->battery_status = POWER_SUPPLY_STATUS_DISCHARGING;
+	spin_unlock_irqrestore(&drc->lock, flags);
 
 	/* let hidraw and hiddev handle the report */
 	return 0;
@@ -234,22 +266,22 @@ static bool drc_setup_touch(struct drc *drc,
 
 	input_dev->evbit[0] = BIT(EV_ABS) | BIT(EV_KEY);
 
-	input_set_abs_params(input_dev, ABS_X, 0, RES_X, 1, 0);
+	input_set_abs_params(input_dev, ABS_X, 100, MAX_TOUCH_RES - 100, 20, 0);
 	input_abs_set_res(input_dev, ABS_X, RES_X / WIDTH);
-	input_set_abs_params(input_dev, ABS_Y, 0, RES_Y, 1, 0);
+	input_set_abs_params(input_dev, ABS_Y, 200, MAX_TOUCH_RES - 200, 20, 0);
 	input_abs_set_res(input_dev, ABS_Y, RES_Y / HEIGHT);
 
 	set_bit(BTN_TOUCH, input_dev->keybit);
 	set_bit(BTN_TOOL_FINGER, input_dev->keybit);
 
-	set_bit(INPUT_PROP_POINTER, input_dev->propbit);
+	set_bit(INPUT_PROP_DIRECT, input_dev->propbit);
 
 	drc->touch_input_dev = input_dev;
 
 	return true;
 }
 
-/*static bool drc_setup_accel(struct drc *drc,
+static bool drc_setup_accel(struct drc *drc,
 		struct hid_device *hdev)
 {
 	struct input_dev *input_dev;
@@ -258,24 +290,85 @@ static bool drc_setup_touch(struct drc *drc,
 	if (!input_dev)
 		return false;
 
-	input_dev->evbit[0] = BIT(EV_ABS); */
+	input_dev->evbit[0] = BIT(EV_ABS);
 
-	/* 1G accel is reported as ~256, so clamp to 2G */
-/*	input_set_abs_params(input_dev, ABS_X, -512, 512, 0, 0);
-	input_set_abs_params(input_dev, ABS_Y, -512, 512, 0, 0);
-	input_set_abs_params(input_dev, ABS_Z, -512, 512, 0, 0);
+	/* 1G accel is reported as about -7600, so clamp to 2G */
+	input_set_abs_params(input_dev, ABS_X, ACCEL_MIN, ACCEL_MAX, 0, 0);
+	input_set_abs_params(input_dev, ABS_Y, ACCEL_MIN, ACCEL_MAX, 0, 0);
+	input_set_abs_params(input_dev, ABS_Z, ACCEL_MIN, ACCEL_MAX, 0, 0);
+
+	/* gyroscope */
+	input_set_abs_params(input_dev, ABS_RX, GYRO_MIN, GYRO_MAX, 0, 0);
+	input_set_abs_params(input_dev, ABS_RY, GYRO_MIN, GYRO_MAX, 0, 0);
+	input_set_abs_params(input_dev, ABS_RZ, GYRO_MIN, GYRO_MAX, 0, 0);
 
 	set_bit(INPUT_PROP_ACCELEROMETER, input_dev->propbit);
 
 	drc->accel_input_dev = input_dev;
 
 	return true;
-}*/
+}
+
+static enum power_supply_property drc_battery_props[] = {
+	POWER_SUPPLY_PROP_PRESENT,
+	POWER_SUPPLY_PROP_CAPACITY,
+	POWER_SUPPLY_PROP_SCOPE,
+	POWER_SUPPLY_PROP_STATUS,
+	POWER_SUPPLY_PROP_ENERGY_NOW,
+	POWER_SUPPLY_PROP_ENERGY_EMPTY,
+	POWER_SUPPLY_PROP_ENERGY_FULL,
+};
+
+static int drc_battery_get_property(struct power_supply *psy,
+				    enum power_supply_property psp,
+				    union power_supply_propval *val)
+{
+	struct drc *drc = power_supply_get_drvdata(psy);
+	unsigned long flags;
+	int ret = 0;
+	u8 battery_energy;
+	int battery_status;
+
+	spin_lock_irqsave(&drc->lock, flags);
+	battery_energy = drc->battery_energy;
+	battery_status = drc->battery_status;
+	spin_unlock_irqrestore(&drc->lock, flags);
+
+	switch (psp) {
+		case POWER_SUPPLY_PROP_PRESENT:
+			val->intval = 1;
+			break;
+		case POWER_SUPPLY_PROP_SCOPE:
+			val->intval = POWER_SUPPLY_SCOPE_DEVICE;
+			break;
+		case POWER_SUPPLY_PROP_CAPACITY:
+			val->intval = BATTERY_CAPACITY(battery_energy);
+			break;
+		case POWER_SUPPLY_PROP_STATUS:
+			val->intval = battery_status;
+			break;
+		case POWER_SUPPLY_PROP_ENERGY_NOW:
+			val->intval = battery_energy;
+			break;
+		case POWER_SUPPLY_PROP_ENERGY_EMPTY:
+			val->intval = BATTERY_MIN;
+			break;
+		case POWER_SUPPLY_PROP_ENERGY_FULL:
+			val->intval = BATTERY_MAX;
+			break;
+		default:
+			ret = -EINVAL;
+			break;
+	}
+	return ret;
+}
 
 static bool drc_setup_joypad(struct drc *drc,
 		struct hid_device *hdev)
 {
 	struct input_dev *input_dev;
+	struct power_supply_config psy_cfg = { .drv_data = drc, };
+	int ret;
 
 	input_dev = allocate_and_setup(hdev, DEVICE_NAME " Joypad");
 	if (!input_dev)
@@ -308,6 +401,29 @@ static bool drc_setup_joypad(struct drc *drc,
 
 	drc->joy_input_dev = input_dev;
 
+	drc->battery_desc.properties = drc_battery_props;
+	drc->battery_desc.num_properties = ARRAY_SIZE(drc_battery_props);
+	drc->battery_desc.get_property = drc_battery_get_property;
+	drc->battery_desc.type = POWER_SUPPLY_TYPE_BATTERY;
+	drc->battery_desc.use_for_apm = 0;
+
+	// XXX: use /sys/devices/platform/latte/d140000.usb/usb3/3-1/3-1:1.*/bInterfaceNumber
+	// as num instead, but I have no idea how to retrieve it from here…
+	uint8_t num;
+	get_random_bytes(&num, 1);
+	drc->battery_desc.name = devm_kasprintf(&hdev->dev, GFP_KERNEL, "wiiu_drc_battery_%i", num);
+	if (!drc->battery_desc.name)
+		return -ENOMEM;
+
+	drc->battery = devm_power_supply_register(&hdev->dev, &drc->battery_desc, &psy_cfg);
+	if (IS_ERR(drc->battery)) {
+		ret = PTR_ERR(drc->battery);
+		hid_err(hdev, "Unable to register battery device\n");
+		return ret;
+	}
+
+	power_supply_powers(drc->battery, &hdev->dev);
+
 	return true;
 }
 
@@ -331,15 +447,15 @@ static int drc_probe(struct hid_device *hdev, const struct hid_device_id *id)
 	}
 
 	if (!drc_setup_joypad(drc, hdev) ||
-	    !drc_setup_touch(drc, hdev) /*||
-	    !drc_setup_accel(drc, hdev)*/) {
+	    !drc_setup_touch(drc, hdev) ||
+	    !drc_setup_accel(drc, hdev)) {
 		hid_err(hdev, "could not allocate interfaces\n");
 		return -ENOMEM;
 	}
 
 	ret = input_register_device(drc->joy_input_dev) ||
-		input_register_device(drc->touch_input_dev) /*||
-		input_register_device(drc->accel_input_dev)*/;
+		input_register_device(drc->touch_input_dev) ||
+		input_register_device(drc->accel_input_dev);
 	if (ret) {
 		hid_err(hdev, "failed to register interfaces\n");
 		return ret;
