@@ -248,6 +248,11 @@
             interrupts = <24>;
         };
 
+        latte_otp: otp@0d800000 {
+            compatible = "nintendo,latte-otp";
+            reg = <0x0d8001ec 0x8>;
+        };
+
         /* this doesn't quite work yet, disabling for now
         sata: sata@0d160400 {
             compatible = "generic-ahci";

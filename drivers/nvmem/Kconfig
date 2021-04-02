@@ -192,4 +192,13 @@ config SC27XX_EFUSE
 	  This driver can also be built as a module. If so, the module
 	  will be called nvmem-sc27xx-efuse.
 
+config WIIU_OTP
+	tristate "Nintendo Wii U OTP Support"
+	depends on WIIU
+	help
+	  This is a driver to dump the OTP from a Nintendo Wii U.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called nvmem-wiiu-otp.
+
 endif
