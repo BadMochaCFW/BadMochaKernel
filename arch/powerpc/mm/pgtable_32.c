@@ -273,9 +273,12 @@ void __init mapin_ram(void)
 #elif defined(CONFIG_WIIU)
 	for_each_memblock(memory, reg) {
 		s = reg->base;
+		if (s > total_lowmem) continue;
 		top = reg->base + reg->size;
+		//don't map more than the lowmem limit
+		if (top > total_lowmem) top = total_lowmem;
+
 		__mapin_ram_chunk(s, top);
-		printk("wiiu: mapped %08x - %08lx:%08lx\n", reg->size, s, top);
 	}
 #else
 	if (!wii_hole_size) {
