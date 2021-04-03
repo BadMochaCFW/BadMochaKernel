@@ -41,3 +41,5 @@ obj-$(CONFIG_RAVE_SP_EEPROM)	+= nvmem-rave-sp-eeprom.o
 nvmem-rave-sp-eeprom-y		:= rave-sp-eeprom.o
 obj-$(CONFIG_SC27XX_EFUSE)	+= nvmem-sc27xx-efuse.o
 nvmem-sc27xx-efuse-y		:= sc27xx-efuse.o
+obj-$(CONFIG_WIIU_OTP)		+= nvmem-wiiu-otp.o
+nvmem-wiiu-otp-y		:= wiiu-otp.o
