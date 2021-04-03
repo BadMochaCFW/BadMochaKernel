@@ -22,9 +22,6 @@
  * GNU General Public License for more details.
  */
 
-// XXX: remove that, see drc_setup_joypad().
-#include <linux/random.h>
-
 #include <linux/device.h>
 #include <linux/hid.h>
 #include <linux/module.h>
@@ -52,6 +49,8 @@ MODULE_LICENSE("GPL");
 #define HEIGHT 79
 #define STICK_MIN 900
 #define STICK_MAX 3200
+#define VOLUME_MIN 0
+#define VOLUME_MAX 255
 #define NUM_STICK_AXES 4
 #define NUM_TOUCH_POINTS 10
 #define MAX_TOUCH_RES (1 << 12)
@@ -138,6 +137,8 @@ static int drc_raw_event(struct hid_device *hdev, struct hid_report *report,
 	input_report_key(drc->joy_input_dev, BTN_START, !!(buttons & kBtnPlus));
 	input_report_key(drc->joy_input_dev, BTN_MODE, !!(buttons & kBtnHome));
 
+	input_report_abs(drc->joy_input_dev, ABS_VOLUME, data[14]);
+
 	for (i = 0; i < NUM_STICK_AXES; i++) {
 		s16 val = (data[7 + 2*i] << 8) | data[6 + 2*i];
 		/* clamp */
@@ -201,6 +202,14 @@ static int drc_raw_event(struct hid_device *hdev, struct hid_report *report,
 	input_report_abs(drc->accel_input_dev, ABS_RY, y >> 8);
 	input_report_abs(drc->accel_input_dev, ABS_RZ, z >> 8);
 	input_sync(drc->accel_input_dev);
+
+	/* magnetometer? */
+	x = (data[31] << 8) | data[30];
+	y = (data[33] << 8) | data[32];
+	z = (data[35] << 8) | data[34];
+	input_report_abs(drc->accel_input_dev, ABS_THROTTLE, (int16_t)x);
+	input_report_abs(drc->accel_input_dev, ABS_RUDDER, (int16_t)y);
+	input_report_abs(drc->accel_input_dev, ABS_WHEEL, (int16_t)z);
 
 	/* battery */
 	spin_lock_irqsave(&drc->lock, flags);
@@ -302,6 +311,12 @@ static bool drc_setup_accel(struct drc *drc,
 	input_set_abs_params(input_dev, ABS_RY, GYRO_MIN, GYRO_MAX, 0, 0);
 	input_set_abs_params(input_dev, ABS_RZ, GYRO_MIN, GYRO_MAX, 0, 0);
 
+	/* magnetometer? */
+	/* XXX: figure out which ABS_* would make more sense to expose. */
+	input_set_abs_params(input_dev, ABS_THROTTLE, ACCEL_MIN, ACCEL_MAX, 0, 0);
+	input_set_abs_params(input_dev, ABS_RUDDER, ACCEL_MIN, ACCEL_MAX, 0, 0);
+	input_set_abs_params(input_dev, ABS_WHEEL, ACCEL_MIN, ACCEL_MAX, 0, 0);
+
 	set_bit(INPUT_PROP_ACCELEROMETER, input_dev->propbit);
 
 	drc->accel_input_dev = input_dev;
@@ -369,6 +384,7 @@ static bool drc_setup_joypad(struct drc *drc,
 	struct input_dev *input_dev;
 	struct power_supply_config psy_cfg = { .drv_data = drc, };
 	int ret;
+	static uint8_t drc_num = 0;
 
 	input_dev = allocate_and_setup(hdev, DEVICE_NAME " Joypad");
 	if (!input_dev)
@@ -398,6 +414,7 @@ static bool drc_setup_joypad(struct drc *drc,
 	input_set_abs_params(input_dev, ABS_Y, STICK_MIN, STICK_MAX, 0, 0);
 	input_set_abs_params(input_dev, ABS_RX, STICK_MIN, STICK_MAX, 0, 0);
 	input_set_abs_params(input_dev, ABS_RY, STICK_MIN, STICK_MAX, 0, 0);
+	input_set_abs_params(input_dev, ABS_VOLUME, VOLUME_MIN, VOLUME_MAX, 0, 0);
 
 	drc->joy_input_dev = input_dev;
 
@@ -407,11 +424,12 @@ static bool drc_setup_joypad(struct drc *drc,
 	drc->battery_desc.type = POWER_SUPPLY_TYPE_BATTERY;
 	drc->battery_desc.use_for_apm = 0;
 
-	// XXX: use /sys/devices/platform/latte/d140000.usb/usb3/3-1/3-1:1.*/bInterfaceNumber
-	// as num instead, but I have no idea how to retrieve it from here…
-	uint8_t num;
-	get_random_bytes(&num, 1);
-	drc->battery_desc.name = devm_kasprintf(&hdev->dev, GFP_KERNEL, "wiiu_drc_battery_%i", num);
+	/*
+	 * TODO: Might be better to use the interface number as the drc_num,
+	 * but I don’t know how to fetch it from the kernel…  In userland it is
+	 * /sys/devices/platform/latte/d140000.usb/usb3/3-1/3-1:1.?/bInterfaceNumber
+	 */
+	drc->battery_desc.name = devm_kasprintf(&hdev->dev, GFP_KERNEL, "wiiu-drc-%i-battery", drc_num++);
 	if (!drc->battery_desc.name)
 		return -ENOMEM;
 
