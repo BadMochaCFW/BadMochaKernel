@@ -628,7 +628,7 @@ static struct drm_driver kms_driver = {
 };
 
 static struct drm_driver *driver;
-static struct pci_driver *pdriver;
+/*static struct pci_driver *pdriver;
 
 static struct pci_driver radeon_kms_pci_driver = {
 	.name = DRIVER_NAME,
@@ -644,9 +644,9 @@ static int __init radeon_init(void)
 	if (vgacon_text_force() && radeon_modeset == -1) {
 		DRM_INFO("VGACON disable radeon kernel modesetting.\n");
 		radeon_modeset = 0;
-	}
+	}*/
 	/* set to modesetting by default if not nomodeset */
-	if (radeon_modeset == -1)
+	/*if (radeon_modeset == -1)
 		radeon_modeset = 1;
 
 	if (radeon_modeset == 1) {
@@ -669,10 +669,40 @@ static void __exit radeon_exit(void)
 {
 	pci_unregister_driver(pdriver);
 	radeon_unregister_atpx_handler();
+}*/
+
+/*module_init(radeon_init);
+module_exit(radeon_exit);*/
+
+static int radeon_of_probe(struct platform_device *pdev)
+{
+	struct drm_device* dev;
+	int ret;
+
+	dev = drm_dev_alloc(&kms_driver, &pdev->dev);
+	if (IS_ERR(dev)) return PTR_ERR(dev);
+
+	platform_set_drvdata(pdev, drm);
+	ret = drm_dev_register(drm, CHIP_RV770|RADEON_NEW_MEMMAP /*temp HACK! temp HACK!*/);
+	if (ret) return ret;
+
+	return 0;
 }
 
-module_init(radeon_init);
-module_exit(radeon_exit);
+static const struct of_device_id radeon_of_match[] = {
+	{ .compatible = "nintendo,gpu7", },
+	{/* sentinel */},
+};
+MODULE_DEVICE_TABLE(of, radeon_of_match);
+
+static struct platform_driver radeon_driver = {
+	.probe = radeon_of_probe,
+	.driver = {
+		.name = "nintendo,gpu7",
+		.of_match_table = radeon_of_match,
+	},
+};
+module_platform_driver(radeon_driver);
 
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_DESCRIPTION(DRIVER_DESC);

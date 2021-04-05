@@ -102,17 +102,18 @@ int radeon_driver_load_kms(struct drm_device *dev, unsigned long flags)
 	dev->dev_private = (void *)rdev;
 
 	/* update BUS flag */
-	if (pci_find_capability(dev->pdev, PCI_CAP_ID_AGP)) {
+	if (dev->pdev && pci_find_capability(dev->pdev, PCI_CAP_ID_AGP)) {
 		flags |= RADEON_IS_AGP;
-	} else if (pci_is_pcie(dev->pdev)) {
+	} else if (dev->pdev && pci_is_pcie(dev->pdev)) {
 		flags |= RADEON_IS_PCIE;
-	} else {
+	} else if (dev->pdev) {
 		flags |= RADEON_IS_PCI;
 	}
 
 	if ((radeon_runtime_pm != 0) &&
 	    radeon_has_atpx() &&
 	    ((flags & RADEON_IS_IGP) == 0) &&
+	    dev->pdev &&
 	    !pci_is_thunderbolt_attached(dev->pdev))
 		flags |= RADEON_IS_PX;
 
@@ -124,7 +125,7 @@ int radeon_driver_load_kms(struct drm_device *dev, unsigned long flags)
 	 */
 	r = radeon_device_init(rdev, dev, dev->pdev, flags);
 	if (r) {
-		dev_err(&dev->pdev->dev, "Fatal error during GPU init\n");
+		dev_err(dev->dev, "Fatal error during GPU init\n");
 		goto out;
 	}
 
@@ -134,7 +135,7 @@ int radeon_driver_load_kms(struct drm_device *dev, unsigned long flags)
 	 */
 	r = radeon_modeset_init(rdev);
 	if (r)
-		dev_err(&dev->pdev->dev, "Fatal error during modeset init\n");
+		dev_err(dev->dev, "Fatal error during modeset init\n");
 
 	/* Call ACPI methods: require modeset init
 	 * but failure is not fatal
@@ -142,7 +143,7 @@ int radeon_driver_load_kms(struct drm_device *dev, unsigned long flags)
 	if (!r) {
 		acpi_status = radeon_acpi_init(rdev);
 		if (acpi_status)
-		dev_dbg(&dev->pdev->dev,
+		dev_dbg(dev->dev,
 				"Error during ACPI methods call\n");
 	}
 

@@ -1287,7 +1287,7 @@ int radeon_device_init(struct radeon_device *rdev,
 	bool runtime = false;
 
 	rdev->shutdown = false;
-	rdev->dev = &pdev->dev;
+	rdev->dev = ddev->dev;
 	rdev->ddev = ddev;
 	rdev->pdev = pdev;
 	rdev->flags = flags;
@@ -1302,9 +1302,14 @@ int radeon_device_init(struct radeon_device *rdev,
 	}
 	rdev->fence_context = dma_fence_context_alloc(RADEON_NUM_RINGS);
 
-	DRM_INFO("initializing kernel modesetting (%s 0x%04X:0x%04X 0x%04X:0x%04X 0x%02X).\n",
-		 radeon_family_name[rdev->family], pdev->vendor, pdev->device,
-		 pdev->subsystem_vendor, pdev->subsystem_device, pdev->revision);
+	if (pdev) {
+		DRM_INFO("initializing kernel modesetting (%s 0x%04X:0x%04X 0x%04X:0x%04X 0x%02X).\n",
+			 radeon_family_name[rdev->family], pdev->vendor, pdev->device,
+			 pdev->subsystem_vendor, pdev->subsystem_device, pdev->revision);
+	} else {
+		DRM_INFO("initializing kernel modesetting (%s).\n", radeon_family_name[rdev->family]);
+	}
+
 
 	/* mutex initialization are all done here so we
 	 * can recall function without having locking issues */
@@ -1376,15 +1381,15 @@ int radeon_device_init(struct radeon_device *rdev,
 #endif
 
 	dma_bits = rdev->need_dma32 ? 32 : 40;
-	r = pci_set_dma_mask(rdev->pdev, DMA_BIT_MASK(dma_bits));
+	r = dma_set_mask(rdev->dev, DMA_BIT_MASK(dma_bits));
 	if (r) {
 		rdev->need_dma32 = true;
 		dma_bits = 32;
 		pr_warn("radeon: No suitable DMA available\n");
 	}
-	r = pci_set_consistent_dma_mask(rdev->pdev, DMA_BIT_MASK(dma_bits));
+	r = dma_set_coherent_mask(rdev->dev, DMA_BIT_MASK(dma_bits));
 	if (r) {
-		pci_set_consistent_dma_mask(rdev->pdev, DMA_BIT_MASK(32));
+		dma_set_coherent_mask(rdev->dev, DMA_BIT_MASK(32));
 		pr_warn("radeon: No coherent DMA available\n");
 	}
 	rdev->need_swiotlb = drm_get_max_iomem() > ((u64)1 << dma_bits);
@@ -1403,13 +1408,16 @@ int radeon_device_init(struct radeon_device *rdev,
 	spin_lock_init(&rdev->rcu_idx_lock);
 	spin_lock_init(&rdev->didt_idx_lock);
 	spin_lock_init(&rdev->end_idx_lock);
-	if (rdev->family >= CHIP_BONAIRE) {
+	/*if (rdev->family >= CHIP_BONAIRE) {
 		rdev->rmmio_base = pci_resource_start(rdev->pdev, 5);
 		rdev->rmmio_size = pci_resource_len(rdev->pdev, 5);
 	} else {
 		rdev->rmmio_base = pci_resource_start(rdev->pdev, 2);
 		rdev->rmmio_size = pci_resource_len(rdev->pdev, 2);
-	}
+	}*/
+	//XXX HACK TEMP
+	rdev->rmmio_base = 0x0c200000;
+	rdev->rmmio_size = 0x80000;
 	rdev->rmmio = ioremap(rdev->rmmio_base, rdev->rmmio_size);
 	if (rdev->rmmio == NULL)
 		return -ENOMEM;
@@ -1419,13 +1427,13 @@ int radeon_device_init(struct radeon_device *rdev,
 		radeon_doorbell_init(rdev);
 
 	/* io port mapping */
-	for (i = 0; i < DEVICE_COUNT_RESOURCE; i++) {
+	/*for (i = 0; i < DEVICE_COUNT_RESOURCE; i++) {
 		if (pci_resource_flags(rdev->pdev, i) & IORESOURCE_IO) {
 			rdev->rio_mem_size = pci_resource_len(rdev->pdev, i);
 			rdev->rio_mem = pci_iomap(rdev->pdev, i, rdev->rio_mem_size);
 			break;
 		}
-	}
+	}*/
 	if (rdev->rio_mem == NULL)
 		DRM_ERROR("Unable to find PCI I/O BAR\n");
 
@@ -1435,14 +1443,14 @@ int radeon_device_init(struct radeon_device *rdev,
 	/* if we have > 1 VGA cards, then disable the radeon VGA resources */
 	/* this will fail for cards that aren't VGA class devices, just
 	 * ignore it */
-	vga_client_register(rdev->pdev, rdev, NULL, radeon_vga_set_decode);
+	if (rdev->pdev) vga_client_register(rdev->pdev, rdev, NULL, radeon_vga_set_decode);
 
 	if (rdev->flags & RADEON_IS_PX)
 		runtime = true;
-	if (!pci_is_thunderbolt_attached(rdev->pdev))
+	if (rdev->pdev && !pci_is_thunderbolt_attached(rdev->pdev))
 		vga_switcheroo_register_client(rdev->pdev,
 					       &radeon_switcheroo_ops, runtime);
-	if (runtime)
+	if (rdev->pdev && runtime)
 		vga_switcheroo_init_domain_pm_ops(rdev->dev, &rdev->vga_pm_domain);
 
 	r = radeon_init(rdev);
