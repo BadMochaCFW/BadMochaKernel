@@ -440,7 +440,7 @@ static struct uvc_control_mapping uvc_ctrl_mappings[] = {
 		.size		= 16,
 		.offset		= 0,
 		.v4l2_type	= V4L2_CTRL_TYPE_INTEGER,
-		.data_type	= UVC_CTRL_DATA_TYPE_UNSIGNED,
+		.data_type	= UVC_CTRL_DATA_TYPE_SIGNED,
 	},
 	{
 		.id		= V4L2_CID_HUE,
