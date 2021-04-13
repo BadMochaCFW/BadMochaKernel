@@ -19,7 +19,7 @@ As of writing; this fork supports:
  - Simple IPC to ARM (poweroff/reboot)
  - Both interrupt controllers (listen, it took a lot of work, it's on the list)
 
-More up-to-date information about supported hardware can be found on [the wiki's Kernel/Hardware Support page](https://wiki.linux-wiiu.org/wiki/Kernel/Hardware_Support), along with a comparison against previous versions. Progress relating to hardware support is tracked with GitLab issues, visible on [the boards](https://gitlab.com/linux-wiiu/linux-wiiu/boards).
+More up-to-date information about supported hardware can be found on [the wiki's Kernel/Hardware Support page](https://wiki.linux-wiiu.org/wiki/Kernel/Hardware_Support), along with a comparison against previous versions. Progress relating to hardware support is tracked with GitLab issues, visible on [the boards](hhttps://gitlab.com/linux-wiiu/linux-wiiu/-/boards).
 
 ### Getting Linux
 ##### Prebuilt Download
