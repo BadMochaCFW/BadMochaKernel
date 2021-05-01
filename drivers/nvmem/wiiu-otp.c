@@ -50,6 +50,8 @@ static struct nvmem_config econfig = {
 	.stride = 4,
 	.word_size = 4,
 	.reg_read = wiiu_otp_reg_read,
+	.read_only = true,
+	.root_only = true,
 };
 
 static int wiiu_otp_probe(struct platform_device *pdev)
