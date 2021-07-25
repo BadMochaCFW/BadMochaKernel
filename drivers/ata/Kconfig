@@ -220,6 +220,15 @@ config AHCI_TEGRA
 
 	  If unsure, say N.
 
+config AHCI_WIIU
+	tristate "Nintendo Wii U AHCI SATA support"
+	depends on WIIU
+	help
+	  This option enables support for the SATA controller found in the Nintendo
+	  Wii U.
+
+	  If unsure, say N.
+
 config AHCI_XGENE
 	tristate "APM X-Gene 6.0Gbps AHCI SATA host controller support"
 	depends on PHY_XGENE
