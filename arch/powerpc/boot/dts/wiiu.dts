@@ -148,6 +148,30 @@
             interrupt-parent = <&latte_ahball_pic>;
         };
 
+        spi_gpio: spi-gpio {
+            compatible = "spi-gpio";
+            #address-cells = <1>;
+            #size-cells = <0>;
+            status = "okay";
+
+            cs-gpios = <&gpio 10 GPIO_ACTIVE_HIGH>;
+            gpio-sck = <&gpio 11 GPIO_ACTIVE_HIGH>;
+            gpio-mosi = <&gpio 12 GPIO_ACTIVE_HIGH>;
+            gpio-miso = <&gpio 13 GPIO_ACTIVE_HIGH>;
+            num-chipselects = <1>;
+
+            seeprom@0 {
+                compatible = "atmel,at93c66";
+                reg = <0>;
+                spi-max-frequency = <1000000>;
+                spi-cs-high;
+                size = <4096>;
+                /* TODO: wiiubrew says this is 16-bit, but I only get the correct values in 8-bit */
+                data-size = <8>;
+                read-only;
+            };
+        };
+
         gpio2: gpio2@0d8000c0 {
             #gpio-cells = <2>;
             compatible = "nintendo,latte-gpio", "nintendo,hollywood-gpio";
