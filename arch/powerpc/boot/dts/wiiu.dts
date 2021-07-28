@@ -148,30 +148,6 @@
             interrupt-parent = <&latte_ahball_pic>;
         };
 
-        spi_gpio: spi-gpio {
-            compatible = "spi-gpio";
-            #address-cells = <1>;
-            #size-cells = <0>;
-            status = "okay";
-
-            cs-gpios = <&gpio 10 GPIO_ACTIVE_HIGH>;
-            gpio-sck = <&gpio 11 GPIO_ACTIVE_HIGH>;
-            gpio-mosi = <&gpio 12 GPIO_ACTIVE_HIGH>;
-            gpio-miso = <&gpio 13 GPIO_ACTIVE_HIGH>;
-            num-chipselects = <1>;
-
-            seeprom@0 {
-                compatible = "atmel,at93c66";
-                reg = <0>;
-                spi-max-frequency = <1000000>;
-                spi-cs-high;
-                size = <4096>;
-                /* TODO: wiiubrew says this is 16-bit, but I only get the correct values in 8-bit */
-                data-size = <8>;
-                read-only;
-            };
-        };
-
         gpio2: gpio2@0d8000c0 {
             #gpio-cells = <2>;
             compatible = "nintendo,latte-gpio", "nintendo,hollywood-gpio";
@@ -272,11 +248,6 @@
             interrupts = <24>;
         };
 
-        latte_otp: otp@0d800000 {
-            compatible = "nintendo,latte-otp";
-            reg = <0x0d8001ec 0x8>;
-        };
-
         latte_aes: aes@0d020000 {
             compatible = "nintendo,latte-aes";
             reg = <0x0d020000 0x14>;
@@ -288,6 +259,90 @@
 
             interrupt-parent = <&latte_ahball_pic>;
             interrupts = <38>; //IRQ 7 may be DBGINTs only
+        };
+
+        latte_otp: otp@0d800000 {
+            compatible = "nintendo,latte-otp";
+            reg = <0x0d8001ec 0x8>;
+        };
+
+        spi_gpio: spi-gpio {
+            compatible = "spi-gpio";
+            #address-cells = <1>;
+            #size-cells = <0>;
+            status = "okay";
+
+            cs-gpios = <&gpio 10 GPIO_ACTIVE_HIGH>;
+            gpio-sck = <&gpio 11 GPIO_ACTIVE_HIGH>;
+            gpio-mosi = <&gpio 12 GPIO_ACTIVE_HIGH>;
+            gpio-miso = <&gpio 13 GPIO_ACTIVE_HIGH>;
+            num-chipselects = <1>;
+
+            seeprom@0 {
+                compatible = "atmel,at93c66";
+                reg = <0>;
+                spi-max-frequency = <1000000>;
+                spi-cs-high;
+                size = <4096>;
+                /* TODO: wiiubrew says this is 16-bit, but I only get the correct values in 8-bit */
+                data-size = <8>;
+                read-only;
+
+                #address-cells = <1>;
+                #size-cells = <1>;
+
+                /* https://wiiubrew.org/wiki/Hardware/SEEPROM */
+                rng_seed: rng@012 { reg = <0x012 8>; };
+                ppc_pvr: pvr@020 { reg = <0x020 4>; };
+                seeprom_ver_str: sver-str@024 { reg = <0x024 6>; };
+                seeprom_ver: sver@02a { reg = <0x02A 2>; };
+                otp_ver: over@02c { reg = <0x02C 2>; };
+                otp_rev: orev@02e { reg = <0x02E 2>; };
+                otp_ver_str: over-str@030 { reg = <0x030 8>; };
+
+                bc_crc: bc-crc@038 { reg = <0x038 4>; };
+                bc_sz: bc-sz@03c { reg = <0x03C 2>; };
+                bc_ver: bc-ver@03e { reg = <0x03E 2>; };
+                bc_boardtype: boardtype@042 { reg = <0x042 2>; };
+                bc_boardrev: boardrev@044 { reg = <0x044 2>; };
+                bc_bootsource: bootsource@046 { reg = <0x046 2>; };
+                bc_ddr3size: ddr3size@048 { reg = <0x048 2>; };
+                bc_ddr3speed: ddr3speed@04a { reg = <0x04A 2>; };
+                bc_ppcclockmul: ppcclockmul@04c { reg = <0x04C 2>; };
+                bc_iopclockmul: iopclockmul@046 { reg = <0x04E 2>; };
+                bc_video1080p: video1080p@050 { reg = <0x050 2>; };
+                bc_ddr3vendor: ddr3vendor@052 { reg = <0x052 2>; };
+                bc_movpassivereset: movpassivereset@054 { reg = <0x054 2>; };
+                bc_syspllspd: syspllspd@056 { reg = <0x056 2>; };
+                bc_satadevice: satadevice@058 { reg = <0x058 2>; };
+                bc_consoletype: consoletype@05a { reg = <0x05A 2>; };
+                bc_deviceprescence: deviceprescence@05c { reg = <0x05C 2>; };
+
+                drive_key: drvkey@080 { reg = <0x080 16>; };
+                factory_key: fackey@090 { reg = <0x090 16>; };
+                shdd_key: shddkey@0a0 { reg = <0x0A0 16>; };
+                usb_key_seed: usbkeyseed@0b0 { reg = <0x0B0 16>; };
+                drive_key_flag: drvkeyf@0c0 { reg = <0x0C0 2>; };
+                usb_key_flag: udbkeyf@0c2 { reg = <0x0C2 2>; };
+                shdd_key_flag: shddkeyf@0c4 { reg = <0x0C4 2>; };
+
+                sysprod_version: sp_ver@140 { reg = <0x140 4>; };
+                sysprod_eeprom_version: sp_ee_ver@144 { reg = <0x144 4>; };
+                sysprod_product_area: sp_parea@148 { reg = <0x148 4>; };
+                sysprod_game_region: sp_region@14c { reg = <0x14C 4>; };
+                sysprod_ntsc_pal: sp_ntscpal@150 { reg = <0x150 4>; };
+                sysprod_5ghz_country: sp_5ghz_c@154 { reg = <0x154 2>; };
+                sysprod_5ghz_country_rev: sp_5ghz_crev@156 { reg = <0x156 2>; };
+                sysprod_code: sp_code@158 { reg = <0x158 8>; };
+                sysprod_serial: sp_serial@160 { reg = <0x160 16>; };
+                sysprod_model: sp_model@170 { reg = <0x170 16>; };
+
+                prod_year: pyear@188 { reg = <0x188 2>; };
+                prod_date: pdate@18a { reg = <0x18A 2>; };
+                prod_time: ptime@18c { reg = <0x18C 2>; };
+
+                boot_params: boot_params@1c0 { reg = <0x1C0 48>; };
+            };
         };
     };
 
