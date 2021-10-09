@@ -440,7 +440,7 @@ static struct uvc_control_mapping uvc_ctrl_mappings[] = {
 		.size		= 16,
 		.offset		= 0,
 		.v4l2_type	= V4L2_CTRL_TYPE_INTEGER,
-		.data_type	= UVC_CTRL_DATA_TYPE_UNSIGNED,
+		.data_type	= UVC_CTRL_DATA_TYPE_SIGNED,
 	},
 	{
 		.id		= V4L2_CID_HUE,
@@ -2247,6 +2247,9 @@ static void uvc_ctrl_init_ctrl(struct uvc_device *dev, struct uvc_control *ctrl)
 	const struct uvc_control_mapping *mapping = uvc_ctrl_mappings;
 	const struct uvc_control_mapping *mend =
 		mapping + ARRAY_SIZE(uvc_ctrl_mappings);
+#ifdef CONFIG_WIIU
+	struct usb_device_id wiiu_drh = { USB_DEVICE(0x057e, 0x0341) };
+#endif
 
 	/* XU controls initialization requires querying the device for control
 	 * information. As some buggy UVC devices will crash when queried
@@ -2258,7 +2261,16 @@ static void uvc_ctrl_init_ctrl(struct uvc_device *dev, struct uvc_control *ctrl)
 
 	for (; info < iend; ++info) {
 		if (uvc_entity_match_guid(ctrl->entity, info->entity) &&
-		    ctrl->index == info->index) {
+		    ctrl->index == info->index
+#ifdef CONFIG_WIIU
+		    /* This is *definitely* not gonna get accepted upstream,
+		     * but we need to prevent the ctrl from being added,
+		     * afterwards it’s too late it seems. */
+		    && !(usb_match_one_id(dev->intf, &wiiu_drh) &&
+			 (ctrl->entity->id == 2 || ctrl->entity->id == 5) &&
+			 info->selector == UVC_PU_HUE_AUTO_CONTROL)
+#endif
+		    ) {
 			uvc_ctrl_add_info(dev, ctrl, info);
 			/*
 			 * Retrieve control flags from the device. Ignore errors
