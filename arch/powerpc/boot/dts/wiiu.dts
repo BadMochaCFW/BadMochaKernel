@@ -266,6 +266,26 @@
             reg = <0x0d8001ec 0x8>;
         };
 
+        latte_hw_srnprot: srnprot@0d800060 {
+            compatible = "nintendo,latte-srnprot";
+            reg = <0x0d800060 0x4>;
+        };
+
+        latte_aip_prot: aip@0d800070 {
+            compatible = "nintendo,latte-aip-prot";
+            reg = <0x0d800070 0x4>;
+        };
+
+        latte_exi: exi@0d806800 {
+            compatible = "nintendo,latte-exi",
+                         "nintendo,hollywood-exi",
+                         "nintendo,flipper-exi";
+            reg = <0x0d806800 0x40>;
+            virtual-reg = <0x0d806800>;
+            interrupts = <4>;
+            interrupt-parent = <&latte_ahball_pic>;
+        };
+
         spi_gpio: spi-gpio {
             compatible = "spi-gpio";
             #address-cells = <1>;
