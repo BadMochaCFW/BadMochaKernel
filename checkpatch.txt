@@ -1,0 +1,182 @@
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#11: 
+new file mode 100644
+
+total: 0 errors, 1 warnings, 0 checks, 300 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+"[PATCH] dt-bindings: wiiu: Document the Nintendo Wii U devicetree" has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#15: 
+new file mode 100644
+
+WARNING: DT compatible string "nintendo,latte-usb-ehci" appears un-documented -- check ./Documentation/devicetree/bindings/
+#110: FILE: arch/powerpc/boot/dts/wiiu.dts:91:
++			compatible = "nintendo,latte-usb-ehci", "usb-ehci";
+
+WARNING: DT compatible string "nintendo,latte-usb-ohci" appears un-documented -- check ./Documentation/devicetree/bindings/
+#118: FILE: arch/powerpc/boot/dts/wiiu.dts:99:
++			compatible = "nintendo,latte-usb-ohci";
+
+WARNING: DT compatible string "nintendo,latte-usb-ohci" appears un-documented -- check ./Documentation/devicetree/bindings/
+#127: FILE: arch/powerpc/boot/dts/wiiu.dts:108:
++			compatible = "nintendo,latte-usb-ohci";
+
+WARNING: DT compatible string "nintendo,latte-usb-ehci" appears un-documented -- check ./Documentation/devicetree/bindings/
+#136: FILE: arch/powerpc/boot/dts/wiiu.dts:117:
++			compatible = "nintendo,latte-usb-ehci", "usb-ehci";
+
+WARNING: DT compatible string "nintendo,latte-usb-ohci" appears un-documented -- check ./Documentation/devicetree/bindings/
+#144: FILE: arch/powerpc/boot/dts/wiiu.dts:125:
++			compatible = "nintendo,latte-usb-ohci";
+
+WARNING: DT compatible string "nintendo,latte-usb-ehci" appears un-documented -- check ./Documentation/devicetree/bindings/
+#153: FILE: arch/powerpc/boot/dts/wiiu.dts:134:
++			compatible = "nintendo,latte-usb-ehci", "usb-ehci";
+
+WARNING: DT compatible string "nintendo,latte-usb-ohci" appears un-documented -- check ./Documentation/devicetree/bindings/
+#161: FILE: arch/powerpc/boot/dts/wiiu.dts:142:
++			compatible = "nintendo,latte-usb-ohci";
+
+WARNING: DT compatible string "nintendo,latte-ipc" appears un-documented -- check ./Documentation/devicetree/bindings/
+#184: FILE: arch/powerpc/boot/dts/wiiu.dts:165:
++			compatible = "nintendo,latte-ipc","nintendo,hollywood-ipc";
+
+WARNING: DT compatible string "nintendo,latte-gpio" appears un-documented -- check ./Documentation/devicetree/bindings/
+#215: FILE: arch/powerpc/boot/dts/wiiu.dts:196:
++			compatible = "nintendo,latte-gpio", "nintendo,hollywood-gpio";
+
+WARNING: DT compatible string "nintendo,latte-gpio" appears un-documented -- check ./Documentation/devicetree/bindings/
+#330: FILE: arch/powerpc/boot/dts/wiiu.dts:311:
++			compatible = "nintendo,latte-gpio", "nintendo,hollywood-gpio";
+
+total: 0 errors, 11 warnings, 0 checks, 327 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+"[PATCH] powerpc: wiiu: device tree" has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#36: 
+new file mode 100644
+
+WARNING: Use of volatile is usually wrong: see Documentation/process/volatile-considered-harmful.rst
+#168: FILE: arch/powerpc/boot/wiiu.c:19:
++#define LT_IPC_PPCMSG ((volatile u32 *)0x0d800000)
+
+WARNING: Use of volatile is usually wrong: see Documentation/process/volatile-considered-harmful.rst
+#169: FILE: arch/powerpc/boot/wiiu.c:20:
++#define LT_IPC_PPCCTRL ((volatile u32 *)0x0d800004)
+
+total: 0 errors, 3 warnings, 0 checks, 202 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+"[PATCH] powerpc: wiiu: bootwrapper support" has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#32: 
+new file mode 100644
+
+total: 0 errors, 1 warnings, 0 checks, 17 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+"[PATCH] powerpc: wiiu: introduce wiiu platform" has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.
+total: 0 errors, 0 warnings, 0 checks, 8 lines checked
+
+"[PATCH] powerpc: wiiu: declare as non-coherent" has no obvious style problems and is ready for submission.
+WARNING: please write a paragraph that describes the config symbol fully
+#21: FILE: arch/powerpc/Kconfig.debug:257:
++config PPC_EARLY_DEBUG_LATTEIPC
+
+CHECK: extern prototypes should be avoided in .h files
+#41: FILE: arch/powerpc/include/asm/udbg.h:56:
++extern void __init udbg_init_latteipc(void);
+
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#125: 
+new file mode 100644
+
+total: 0 errors, 2 warnings, 1 checks, 229 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+"[PATCH] powerpc: wiiu: udbg support for latteipc" has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#23: 
+new file mode 100644
+
+total: 0 errors, 1 warnings, 0 checks, 246 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+"[PATCH] powerpc: wiiu: espresso interrupt controller support" has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#37: 
+new file mode 100644
+
+total: 0 errors, 1 warnings, 0 checks, 294 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+"[PATCH] powerpc: wiiu: latte interrupt controller support" has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.
+total: 0 errors, 0 warnings, 0 checks, 22 lines checked
+
+"[PATCH] powerpc: espresso processor support" has no obvious style problems and is ready for submission.
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#25: 
+new file mode 100644
+
+total: 0 errors, 1 warnings, 0 checks, 72 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+"[PATCH] powerpc: wiiu: platform support" has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.
+total: 0 errors, 0 warnings, 0 checks, 12 lines checked
+
+"[PATCH] powerpc: wiiu: don't enforce flat memory" has no obvious style problems and is ready for submission.
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#12: 
+new file mode 100644
+
+total: 0 errors, 1 warnings, 0 checks, 7 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+"[PATCH] powerpc: wiiu: Add minimal default config" has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.
