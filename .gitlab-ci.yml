@@ -1,0 +1,15 @@
+linux-build:
+    stage: build
+    image: registry.gitlab.com/linux-wiiu/linux-wiiu-scripts/lw-ci:latest
+    variables:
+        GIT_DEPTH: 2
+    script:
+        - make wiiu_defconfig $LINUXMK
+        - make $LINUXMK -j`nproc`
+        - cp arch/powerpc/boot/dtbImage.wiiu dtbImage.wiiu
+    artifacts:
+        paths:
+            - dtbImage.wiiu
+            - vmlinux
+        name: "${CI_JOB_NAME}-${CI_COMMIT_REF_SLUG}"
+        expire_in: 6 weeks
