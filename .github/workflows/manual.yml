@@ -11,7 +11,7 @@ jobs:
     - name: Install Packages
       run: sudo apt install git gcc-10-powerpc-linux-gnu gcc-powerpc-linux-gnu make gcc flex binutils bison libssl-dev
     - name: Configure CFW Kernel
-      run: make wiiu_slim_defconfig ARCH=powerpc CROSS_COMPILE=powerpc-linux-gnu- CROSS32_COMPILE=powerpc-linux-gnu- -j$(nproc)
+      run: make wiiu_defconfig ARCH=powerpc CROSS_COMPILE=powerpc-linux-gnu- CROSS32_COMPILE=powerpc-linux-gnu- -j$(nproc)
     - name: Build CFW Kernel
       run: make ARCH=powerpc CROSS_COMPILE=powerpc-linux-gnu- CROSS32_COMPILE=powerpc-linux-gnu- -j$(nproc)
     - name: Add Modules
