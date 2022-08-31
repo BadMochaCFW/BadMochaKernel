@@ -13,8 +13,8 @@ jobs:
     - name: Configure CFW Kernel
       run: make wiiu_slim_defconfig ARCH=powerpc CROSS_COMPILE=powerpc-linux-gnu- CROSS32_COMPILE=powerpc-linux-gnu- -j$(nproc)
     - name: Build CFW Kernel
-      run: make ARCH=powerpc CROSS_COMPILE=powerpc-linux-gnu- CROSS32_COMPILE=powerpc-linux-gnu- -j2
+      run: make ARCH=powerpc CROSS_COMPILE=powerpc-linux-gnu- CROSS32_COMPILE=powerpc-linux-gnu- -j$(nproc)
     - name: Add Modules
       run: mkdir modules
     - name: Compile Modules
-      run: make ARCH=powerpc CROSS_COMPILE=powerpc-linux-gnu- CROSS32_COMPILE=powerpc-linux-gnu- INSTALL_MOD_PATH=modules modules_install -j2
+      run: make ARCH=powerpc CROSS_COMPILE=powerpc-linux-gnu- CROSS32_COMPILE=powerpc-linux-gnu- INSTALL_MOD_PATH=modules modules_install -j$(nproc)
